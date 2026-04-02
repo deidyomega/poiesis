@@ -1,0 +1,54 @@
+<div id="review-{{ review.memory_id }}" class="bg-glitch-surface border border-glitch-border rounded-glitch p-5 max-w-2xl mx-auto">
+    <!-- Proposed Memory -->
+    <div class="mb-4">
+        <h3 class="text-sm font-semibold text-glitch-text mb-2">Proposed Memory</h3>
+        <div class="bg-glitch-bg border border-glitch-border rounded-glitch p-3">
+            <span class="inline-block text-xs font-medium px-2 py-0.5 rounded-full mb-2 bg-glitch-accent/20 text-glitch-accent">
+                {{ review.category }}
+            </span>
+            <p class="text-sm text-glitch-text">{{ review.content }}</p>
+            <div class="mt-2 flex items-center gap-2">
+                <span class="text-xs text-glitch-muted">Confidence: {{ (review.confidence * 100)|int }}%</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Source Journals -->
+    {% if review.source_journals %}
+    <div class="mb-4">
+        <h4 class="text-xs font-semibold text-glitch-muted mb-2">Source Journals</h4>
+        <div class="space-y-2 max-h-40 overflow-y-auto">
+            {% for journal_id in review.source_journals %}
+            <div class="text-xs text-glitch-muted bg-glitch-bg border border-glitch-border rounded-glitch p-2">
+                {{ journal_id }}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Edit Field -->
+    <div class="mb-4">
+        <label class="block text-xs text-glitch-muted mb-1">Edit before approving (optional)</label>
+        <textarea id="review-edit-{{ review.memory_id }}" rows="3"
+                  class="w-full bg-glitch-bg border border-glitch-border rounded-glitch px-3 py-2 text-sm text-glitch-text focus:outline-none focus:border-glitch-accent resize-y"
+                  placeholder="Leave empty to approve as-is">{{ review.content }}</textarea>
+    </div>
+
+    <!-- Actions -->
+    <div class="flex gap-3 justify-center">
+        <button hx-post="/review/{{ review.memory_id }}/reject"
+                hx-target="#review-{{ review.memory_id }}"
+                hx-swap="outerHTML"
+                class="px-5 py-2 text-sm rounded-glitch bg-glitch-error/20 text-glitch-error hover:bg-glitch-error/30 transition-colors">
+            Reject
+        </button>
+        <button hx-post="/review/{{ review.memory_id }}/approve"
+                hx-target="#review-{{ review.memory_id }}"
+                hx-swap="outerHTML"
+                hx-include="#review-edit-{{ review.memory_id }}"
+                class="px-5 py-2 text-sm rounded-glitch bg-glitch-success/20 text-glitch-success hover:bg-glitch-success/30 transition-colors">
+            Approve
+        </button>
+    </div>
+</div>

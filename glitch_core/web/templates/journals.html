@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}Journals — {{ theme.app_name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl">
+    <h1 class="text-2xl font-semibold text-glitch-text mb-6">Journals</h1>
+
+    <!-- Filters -->
+    <div class="flex flex-wrap gap-3 mb-6">
+        <form class="flex-1 min-w-[200px]" action="/journals" method="get">
+            <input type="hidden" name="topic" value="{{ selected_topic }}">
+            {% if include_archived %}<input type="hidden" name="include_archived" value="true">{% endif %}
+            <input type="text" name="search" value="{{ search }}" placeholder="Search journals..."
+                   class="w-full bg-glitch-surface border border-glitch-border rounded-glitch px-3 py-2 text-sm text-glitch-text placeholder-glitch-muted focus:outline-none focus:border-glitch-accent">
+        </form>
+
+        <div class="flex flex-wrap gap-1.5 items-center">
+            <a href="/journals?search={{ search }}{% if include_archived %}&include_archived=true{% endif %}"
+               class="px-3 py-1.5 text-xs rounded-full border transition-colors
+                      {% if not selected_topic %}bg-glitch-accent text-white border-glitch-accent{% else %}border-glitch-border text-glitch-muted hover:border-glitch-accent/50{% endif %}">
+                All
+            </a>
+            {% for t in topics %}
+            <a href="/journals?search={{ search }}&topic={{ t }}{% if include_archived %}&include_archived=true{% endif %}"
+               class="px-3 py-1.5 text-xs rounded-full border transition-colors
+                      {% if selected_topic == t %}bg-glitch-accent text-white border-glitch-accent{% else %}border-glitch-border text-glitch-muted hover:border-glitch-accent/50{% endif %}">
+                {{ t }}
+            </a>
+            {% endfor %}
+        </div>
+
+        <a href="/journals?search={{ search }}&topic={{ selected_topic }}&include_archived={{ 'false' if include_archived else 'true' }}"
+           class="px-3 py-1.5 text-xs rounded-full border transition-colors
+                  {% if include_archived %}bg-glitch-accent text-white border-glitch-accent{% else %}border-glitch-border text-glitch-muted hover:border-glitch-accent/50{% endif %}">
+            {% if include_archived %}Hiding{% else %}Show{% endif %} Archived
+        </a>
+    </div>
+
+    <!-- Timeline -->
+    {% if entries %}
+    <div class="space-y-0">
+        {% for entry in entries %}
+            {% include "components/journal_entry.html" %}
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="text-center py-12">
+        <div class="text-4xl mb-3">📓</div>
+        <h3 class="text-lg font-medium text-glitch-text mb-1">No journal entries yet</h3>
+        <p class="text-sm text-glitch-muted">The AI logs observations during conversations. Start chatting to see entries here.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

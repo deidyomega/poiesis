@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+
+{% block title %}Run Log — {{ theme.app_name }}{% endblock %}
+
+{% block content %}
+{# Macro for rendering a single trace message #}
+{% macro _render_trace_message(msg) %}
+<div class="bg-glitch-surface border border-glitch-border rounded-glitch overflow-hidden">
+    <div class="px-4 py-2 border-b border-glitch-border flex items-center justify-between
+        {% if msg.get('kind') == 'request' %}bg-blue-500/10{% elif msg.get('kind') == 'response' %}bg-green-500/10{% else %}bg-glitch-surface{% endif %}">
+        <div class="flex items-center gap-2">
+            <span class="text-xs font-semibold
+                {% if msg.get('kind') == 'request' %}text-blue-400{% elif msg.get('kind') == 'response' %}text-green-400{% else %}text-glitch-muted{% endif %}">
+                {{ msg.get('kind', 'unknown') | upper }}
+            </span>
+        </div>
+        {% if msg.get('model_name') %}
+        <span class="text-xs text-glitch-muted">{{ msg.model_name }}</span>
+        {% endif %}
+    </div>
+    <div class="p-4 space-y-2">
+        {% for part in msg.get('parts', []) %}
+        <div class="text-sm">
+            {% set part_kind = part.get('part_kind', 'unknown') %}
+            {% if part_kind == 'system-prompt' %}
+            <details>
+                <summary class="text-xs font-semibold text-purple-400 cursor-pointer">SYSTEM PROMPT ({{ part.get('content', '') | length }} chars)</summary>
+                <pre class="text-xs text-glitch-muted bg-glitch-bg rounded-glitch p-3 mt-1 overflow-x-auto max-h-60 overflow-y-auto whitespace-pre-wrap">{{ part.get('content', '') }}</pre>
+            </details>
+            {% elif part_kind == 'user-prompt' %}
+            <div class="text-xs font-semibold text-blue-400 mb-1">USER</div>
+            <p class="text-glitch-text">{{ part.get('content', '') }}</p>
+            {% elif part_kind == 'text' %}
+            <div class="text-xs font-semibold text-green-400 mb-1">ASSISTANT</div>
+            <p class="text-glitch-text">{{ part.get('content', '') }}</p>
+            {% elif part_kind == 'tool-call' %}
+            <div class="text-xs font-semibold text-yellow-400 mb-1">TOOL CALL: {{ part.get('tool_name', '?') }}</div>
+            <pre class="text-xs text-glitch-muted bg-glitch-bg rounded-glitch p-3 overflow-x-auto whitespace-pre-wrap">{{ part.get('args', '') | tojson(indent=2) if part.get('args') is mapping else part.get('args', '') }}</pre>
+            {% elif part_kind == 'tool-return' %}
+            <div class="text-xs font-semibold text-cyan-400 mb-1">TOOL RETURN: {{ part.get('tool_name', '?') }}</div>
+            <pre class="text-xs text-glitch-muted bg-glitch-bg rounded-glitch p-3 overflow-x-auto whitespace-pre-wrap">{{ part.get('content', '') }}</pre>
+            {% else %}
+            <div class="text-xs font-semibold text-glitch-muted mb-1">{{ part_kind | upper }}</div>
+            <pre class="text-xs text-glitch-muted bg-glitch-bg rounded-glitch p-3 overflow-x-auto whitespace-pre-wrap">{{ part | tojson(indent=2) }}</pre>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endmacro %}
+
+<div class="max-w-5xl">
+    <a href="/logs{% if log.session_id %}?session={{ log.session_id }}{% endif %}" class="text-xs text-glitch-muted hover:text-glitch-accent transition-colors">&larr; Back to Logs</a>
+
+    <div class="flex items-center gap-3 mt-2 mb-6">
+        <h1 class="text-2xl font-semibold text-glitch-text">Run Log</h1>
+        <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-glitch-accent/20 text-glitch-accent">
+            {{ log.get('agent_id', 'router') }}
+        </span>
+        {% if log.get('log_type') == 'sub_agent' %}
+        <span class="text-xs px-2 py-0.5 rounded-full bg-glitch-warning/20 text-glitch-warning">sub-agent</span>
+        {% endif %}
+    </div>
+
+    <!-- Metadata -->
+    <div class="bg-glitch-surface border border-glitch-border rounded-glitch p-4 mb-6">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+            <div>
+                <span class="text-glitch-muted text-xs">Session</span>
+                <div class="text-glitch-text font-mono text-xs">{{ log.session_id }}</div>
+            </div>
+            <div>
+                <span class="text-glitch-muted text-xs">Response Message</span>
+                <div class="text-glitch-text font-mono text-xs">{{ log.get('response_msg_id', '-') }}</div>
+            </div>
+            {% if log.get('task_id') %}
+            <div>
+                <span class="text-glitch-muted text-xs">Task ID</span>
+                <div class="text-glitch-text font-mono text-xs">{{ log.task_id }}</div>
+            </div>
+            {% endif %}
+            {% if log.get('worker_id') %}
+            <div>
+                <span class="text-glitch-muted text-xs">Worker</span>
+                <div class="text-glitch-text font-mono text-xs">{{ log.worker_id }}</div>
+            </div>
+            {% endif %}
+        </div>
+
+        {% set usage = log.get('usage', {}) %}
+        <div class="flex flex-wrap gap-4 mt-3 pt-3 border-t border-glitch-border text-xs">
+            <div>
+                <span class="text-glitch-muted">Input:</span>
+                <span class="text-glitch-text font-medium">{{ usage.get('input_tokens', 0) | default(0) }}</span> tokens
+            </div>
+            <div>
+                <span class="text-glitch-muted">Output:</span>
+                <span class="text-glitch-text font-medium">{{ usage.get('output_tokens', 0) | default(0) }}</span> tokens
+            </div>
+            <div>
+                <span class="text-glitch-muted">Requests:</span>
+                <span class="text-glitch-text font-medium">{{ usage.get('requests', 0) | default(0) }}</span>
+            </div>
+            <div>
+                <span class="text-glitch-muted">Tool calls:</span>
+                <span class="text-glitch-text font-medium">{{ usage.get('tool_calls', 0) | default(0) }}</span>
+            </div>
+            {% if usage.get('cache_read_tokens') %}
+            <div>
+                <span class="text-glitch-muted">Cache read:</span>
+                <span class="text-glitch-success font-medium">{{ usage.cache_read_tokens }}</span> tokens
+            </div>
+            {% endif %}
+            {% if usage.get('cache_write_tokens') %}
+            <div>
+                <span class="text-glitch-muted">Cache write:</span>
+                <span class="text-glitch-warning font-medium">{{ usage.cache_write_tokens }}</span> tokens
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- This Exchange -->
+    {% if exchange %}
+    <h2 class="text-lg font-semibold text-glitch-text mb-3">This Exchange</h2>
+    <div class="space-y-3 mb-6">
+        {% for msg in exchange %}
+        {{ _render_trace_message(msg) }}
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Conversation History (collapsed) -->
+    {% if history %}
+    <details class="mb-6">
+        <summary class="text-sm text-glitch-muted cursor-pointer hover:text-glitch-accent transition-colors">
+            Conversation history ({{ history | length }} messages passed as context)
+        </summary>
+        <div class="space-y-3 mt-3 opacity-60">
+            {% for msg in history %}
+            {{ _render_trace_message(msg) }}
+            {% endfor %}
+        </div>
+    </details>
+    {% endif %}
+
+    {% if not exchange and not history %}
+    <div class="bg-glitch-surface border border-glitch-border rounded-glitch p-4">
+        <p class="text-sm text-glitch-muted">No message trace available for this run.</p>
+        {% if log.get('all_messages') %}
+        <details class="mt-2">
+            <summary class="text-xs text-glitch-accent cursor-pointer">Raw JSON</summary>
+            <pre class="text-xs text-glitch-muted mt-2 bg-glitch-bg rounded-glitch p-3 overflow-x-auto max-h-96 overflow-y-auto">{{ log.all_messages }}</pre>
+        </details>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

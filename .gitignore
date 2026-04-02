@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Glitch user-generated content (survives updates)
+glitch_core/web/pages_custom/*.py
+!glitch_core/web/pages_custom/.gitkeep
+glitch_core/web/templates_custom/*.html
+!glitch_core/web/templates_custom/.gitkeep
+tools/*.py
+!tools/.gitkeep
+
+# Secrets and credentials
+.env
+~/.glitch/
+credentials.json
+*.json.bak
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

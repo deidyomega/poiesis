@@ -1,0 +1,40 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Browser gets read-only access for real-time listeners (onSnapshot).
+    // All writes go through the daemon's Admin SDK which bypasses rules.
+
+    match /sessions/{sessionId} {
+      allow read: if true;
+      allow write: if false;
+
+      match /messages/{messageId} {
+        allow read: if true;
+        allow write: if false;
+      }
+      match /sub_tasks/{taskId} {
+        allow read: if true;
+        allow write: if false;
+      }
+      match /run_logs/{logId} {
+        allow read: if true;
+        allow write: if false;
+      }
+    }
+
+    match /agents/{agentId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /meta/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Everything else: deny from browser
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

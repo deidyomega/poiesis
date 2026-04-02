@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}Soul Editor — {{ theme.app_name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl">
+    <div class="flex items-center justify-between mb-6">
+        <div>
+            <h1 class="text-2xl font-semibold text-glitch-text">Soul Editor</h1>
+            <p class="text-sm text-glitch-muted mt-1">Version {{ version }}</p>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Editor -->
+        <div class="lg:col-span-2">
+            <form action="/soul/save" method="post">
+                <textarea name="content" rows="24"
+                          class="w-full bg-glitch-surface border border-glitch-border rounded-glitch px-4 py-3 text-sm text-glitch-text font-mono leading-relaxed focus:outline-none focus:border-glitch-accent resize-y"
+                          spellcheck="false">{{ content }}</textarea>
+                <div class="flex justify-end mt-3">
+                    <button type="submit"
+                            class="px-5 py-2 text-sm rounded-glitch bg-glitch-accent text-white hover:opacity-90 transition-opacity">
+                        Save Soul
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Version History -->
+        <div>
+            <h2 class="text-sm font-semibold text-glitch-text mb-3">Version History</h2>
+            {% if history %}
+            <div class="space-y-2 max-h-[600px] overflow-y-auto">
+                {% for h in history %}
+                <div class="bg-glitch-surface border border-glitch-border rounded-glitch p-3">
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="text-xs font-medium text-glitch-text">v{{ h.version }}</span>
+                        <span class="text-xs text-glitch-muted">{{ h.saved_at }}</span>
+                    </div>
+                    <p class="text-xs text-glitch-muted line-clamp-2">{{ h.content[:120] }}{% if h.content|length > 120 %}...{% endif %}</p>
+                    <form action="/soul/revert/{{ h.version }}" method="post" class="mt-2">
+                        <button type="submit"
+                                onclick="return confirm('Revert to version {{ h.version }}?')"
+                                class="text-xs text-glitch-accent hover:underline">
+                            Revert to this version
+                        </button>
+                    </form>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="text-sm text-glitch-muted">No previous versions yet.</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

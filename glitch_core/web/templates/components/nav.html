@@ -1,0 +1,50 @@
+<aside class="fixed top-0 left-0 h-screen w-sidebar bg-glitch-surface border-r border-glitch-border flex flex-col z-40">
+    <!-- Branding -->
+    <div class="p-4 border-b border-glitch-border">
+        <a href="/" class="flex items-center gap-2 text-lg font-semibold text-glitch-text hover:text-glitch-accent transition-colors">
+            <span class="text-2xl">{{ theme.app_icon }}</span>
+            <span>{{ theme.app_name }}</span>
+        </a>
+    </div>
+
+    <!-- Navigation -->
+    <nav class="flex-1 overflow-y-auto p-3 space-y-4">
+        {% set section_labels = {"core": "Core", "system": "System", "custom": "Custom"} %}
+        {% for section in ["core", "system", "custom"] %}
+            {% if section in nav and nav[section] %}
+            <div>
+                <h3 class="text-xs font-semibold uppercase tracking-wider text-glitch-muted px-2 mb-1">
+                    {{ section_labels.get(section, section|title) }}
+                </h3>
+                <ul class="space-y-0.5">
+                    {% for entry in nav[section] %}
+                    <li>
+                        <a href="{{ entry.meta.route_prefix or '/' + entry.module_name.replace('glitch_page_', '') }}"
+                           class="flex items-center gap-2 px-2 py-1.5 rounded-glitch text-sm text-glitch-text hover:bg-glitch-border/50 hover:text-glitch-accent transition-colors">
+                            {% if entry.meta.icon %}<span>{{ entry.meta.icon }}</span>{% endif %}
+                            <span>{{ entry.meta.title }}</span>
+                            {% if entry.meta.badge_count is not none and entry.meta.badge_count > 0 %}
+                            <span class="ml-auto bg-glitch-accent text-white text-xs px-1.5 py-0.5 rounded-full">{{ entry.meta.badge_count }}</span>
+                            {% endif %}
+                        </a>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+        {% endfor %}
+    </nav>
+
+    <!-- Footer: Theme Picker -->
+    <div class="p-3 border-t border-glitch-border">
+        <button hx-get="/theme/picker"
+                hx-target="#modal-content"
+                hx-trigger="click"
+                onclick="document.getElementById('modal-container').classList.remove('hidden')"
+                class="w-full flex items-center gap-2 px-2 py-1.5 rounded-glitch text-sm text-glitch-muted hover:bg-glitch-border/50 hover:text-glitch-accent transition-colors">
+            <span>🎨</span>
+            <span>Theme</span>
+        </button>
+        <div class="mt-1 text-xs text-glitch-muted px-2">v{{ theme.app_name and "0.1.0" }}</div>
+    </div>
+</aside>

@@ -1,0 +1,15 @@
+{% for msg in messages %}
+<div class="flex {% if msg.role == 'user' %}justify-end{% else %}justify-start{% endif %}">
+    <div class="max-w-[80%] px-4 py-2.5 rounded-glitch text-sm leading-relaxed
+                {% if msg.role == 'user' %}bg-glitch-accent text-white{% elif msg.role == 'system' %}bg-glitch-warning/20 border border-glitch-warning/30 text-glitch-text{% else %}bg-glitch-surface border border-glitch-border text-glitch-text{% endif %}">
+        {{ msg.content }}
+    </div>
+</div>
+{% endfor %}
+{% if not messages %}
+<div class="text-center py-12">
+    <div class="text-4xl mb-3">💬</div>
+    <h3 class="text-lg font-medium text-glitch-text mb-1">Start a conversation</h3>
+    <p class="text-sm text-glitch-muted">Type a message below to talk to Glitch.</p>
+</div>
+{% endif %}

@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block title %}Workers — {{ theme.app_name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl">
+    <h1 class="text-2xl font-semibold text-glitch-text mb-6">Workers</h1>
+
+    {% if workers %}
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {% for worker in workers %}
+            {% include "components/worker_badge.html" %}
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="text-center py-12">
+        <div class="text-4xl mb-3">🖥️</div>
+        <h3 class="text-lg font-medium text-glitch-text mb-1">No workers registered</h3>
+        <p class="text-sm text-glitch-muted">Workers will appear here once the daemon starts and registers itself.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.querySelectorAll('[data-utc]').forEach(el => {
+        const utc = el.dataset.utc;
+        if (utc) {
+            try {
+                const d = new Date(utc);
+                if (!isNaN(d)) el.textContent = d.toLocaleString();
+            } catch(e) {}
+        }
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,327 @@
+{% extends "base.html" %}
+
+{% block title %}Chat — {{ theme.app_name }}{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/marked@15/marked.min.js"></script>
+<style>
+    .msg-markdown h1, .msg-markdown h2, .msg-markdown h3 { font-weight: 600; margin: 0.5em 0 0.25em; }
+    .msg-markdown h1 { font-size: 1.25em; }
+    .msg-markdown h2 { font-size: 1.1em; }
+    .msg-markdown h3 { font-size: 1em; }
+    .msg-markdown p { margin: 0.25em 0; }
+    .msg-markdown ul, .msg-markdown ol { margin: 0.25em 0; padding-left: 1.5em; }
+    .msg-markdown ul { list-style-type: disc; }
+    .msg-markdown ol { list-style-type: decimal; }
+    .msg-markdown li { margin: 0.1em 0; }
+    .msg-markdown code { background: rgba(0,0,0,0.2); padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.9em; }
+    .msg-markdown pre { background: rgba(0,0,0,0.3); padding: 0.75em; border-radius: 6px; overflow-x: auto; margin: 0.5em 0; }
+    .msg-markdown pre code { background: none; padding: 0; }
+    .msg-markdown blockquote { border-left: 3px solid {{ theme.colors.accent }}; padding-left: 0.75em; margin: 0.5em 0; opacity: 0.85; }
+    .msg-markdown a { color: {{ theme.colors.accent }}; text-decoration: underline; }
+    .msg-markdown strong { font-weight: 600; }
+    .msg-markdown table { border-collapse: collapse; margin: 0.5em 0; width: 100%; }
+    .msg-markdown th, .msg-markdown td { border: 1px solid {{ theme.colors.border }}; padding: 0.35em 0.6em; text-align: left; font-size: 0.9em; }
+    .msg-markdown th { background: rgba(0,0,0,0.15); font-weight: 600; }
+    .msg-markdown hr { border: none; border-top: 1px solid {{ theme.colors.border }}; margin: 0.75em 0; }
+
+    /* Thinking animation */
+    @keyframes thinking-pulse {
+        0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+        40% { opacity: 1; transform: scale(1); }
+    }
+    .thinking-dots span {
+        display: inline-block;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: {{ theme.colors.muted }};
+        margin: 0 2px;
+        animation: thinking-pulse 1.4s ease-in-out infinite;
+    }
+    .thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
+    .thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="flex h-[calc(100vh-3rem)] gap-4">
+    <!-- Session Sidebar -->
+    <div class="w-56 shrink-0 flex flex-col">
+        <h2 class="text-sm font-semibold text-glitch-text mb-3">Conversations</h2>
+
+        <!-- New Session -->
+        <div class="mb-3">
+            <form action="/chat/new-session" method="post" class="flex gap-1">
+                <select name="agent_id" class="flex-1 bg-glitch-surface border border-glitch-border rounded-glitch px-2 py-1 text-xs text-glitch-text">
+                    {% for agent in agents %}
+                    <option value="{{ agent.agent_id }}">{{ agent.name }}</option>
+                    {% endfor %}
+                </select>
+                <button type="submit" class="px-2 py-1 text-xs rounded-glitch bg-glitch-accent text-white hover:opacity-90">+</button>
+            </form>
+        </div>
+
+        <!-- Session List -->
+        <div class="flex-1 overflow-y-auto space-y-1">
+            {% for s in sessions %}
+            <a href="/chat?session={{ s.session_id }}"
+               class="block px-2 py-1.5 rounded-glitch text-xs transition-colors truncate
+                      {% if s.session_id == session_id %}bg-glitch-accent/20 text-glitch-accent{% else %}text-glitch-muted hover:bg-glitch-border/50 hover:text-glitch-text{% endif %}">
+                <span class="font-medium">{{ s.get('agent_id', 'router') }}</span>
+                <span class="text-glitch-muted"> · {{ s.session_id[:12] }}</span>
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Chat Area -->
+    <div class="flex-1 flex flex-col min-w-0">
+        <!-- Header -->
+        <div class="flex items-center gap-2 mb-3">
+            <h1 class="text-lg font-semibold text-glitch-text">{{ current_agent_id }}</h1>
+            <span class="text-xs text-glitch-muted">{{ session_id }}</span>
+        </div>
+
+        <!-- Messages -->
+        <div id="message-list" class="flex-1 overflow-y-auto space-y-3 mb-4 pr-2">
+            {% for msg in messages %}
+            <div class="flex {% if msg.role == 'user' %}justify-end{% else %}justify-start{% endif %}" data-msg-id="{{ msg.message_id }}">
+                <div class="max-w-[80%] px-4 py-2.5 rounded-glitch text-sm leading-relaxed msg-markdown
+                            {% if msg.role == 'user' %}bg-glitch-accent text-white{% elif msg.role == 'system' %}bg-glitch-warning/20 border border-glitch-warning/30 text-glitch-text{% else %}bg-glitch-surface border border-glitch-border text-glitch-text{% endif %}"
+                     data-raw="{{ msg.content | e }}">
+                    {{ msg.content }}
+                </div>
+            </div>
+            {% endfor %}
+            {% if not messages %}
+            <div id="empty-state" class="text-center py-12">
+                <div class="text-4xl mb-3">💬</div>
+                <h3 class="text-lg font-medium text-glitch-text mb-1">Start a conversation</h3>
+                <p class="text-sm text-glitch-muted">Chatting with <strong>{{ current_agent_id }}</strong></p>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Input -->
+        <div class="shrink-0 pb-2">
+            <form id="chat-form"
+                  hx-post="/chat/send"
+                  hx-swap="none"
+                  class="flex gap-2 items-end">
+                <input type="hidden" name="session_id" value="{{ session_id }}">
+                <textarea name="message" id="chat-input" placeholder="Type a message... (Shift+Enter for new line)"
+                          rows="1"
+                          class="flex-1 bg-glitch-surface border border-glitch-border rounded-glitch px-4 py-2.5 text-sm text-glitch-text placeholder-glitch-muted focus:outline-none focus:border-glitch-accent resize-none overflow-hidden"></textarea>
+                <button type="submit"
+                        class="px-5 py-2.5 text-sm rounded-glitch bg-glitch-accent text-white hover:opacity-90 transition-opacity shrink-0">
+                    Send
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js';
+    import { getFirestore, collection, query, orderBy, onSnapshot }
+        from 'https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js';
+
+    marked.setOptions({ gfm: true, breaks: true });
+
+    function renderMarkdown(text) {
+        if (!text) return '';
+        return marked.parse(text);
+    }
+
+    function thinkingHTML() {
+        return '<div class="thinking-dots"><span></span><span></span><span></span></div>';
+    }
+
+    function bubbleClasses(role) {
+        const base = 'max-w-[80%] px-4 py-2.5 rounded-glitch text-sm leading-relaxed msg-markdown';
+        if (role === 'user') return `${base} bg-glitch-accent text-white`;
+        if (role === 'system') return `${base} bg-glitch-warning/20 border border-glitch-warning/30 text-glitch-text`;
+        return `${base} bg-glitch-surface border border-glitch-border text-glitch-text`;
+    }
+
+    // ── Typewriter engine ─────────────────────────────────────────
+    // Spreads incoming chunks across the server's flush interval
+    // so text appears to type smoothly instead of popping in blocks.
+    const CHUNK_INTERVAL = 600; // matches server flush_interval
+    const typewriters = new Map(); // msgId → { target, fullText, displayedLen, timer }
+
+    function startTypewriter(msgId, bubble) {
+        typewriters.set(msgId, {
+            bubble,
+            fullText: '',
+            displayedIdx: 0,  // index into split word array
+            timer: null,
+        });
+    }
+
+    function feedTypewriter(msgId, newFullText, isComplete) {
+        const tw = typewriters.get(msgId);
+        if (!tw) return;
+
+        tw.fullText = newFullText;
+
+        if (isComplete) {
+            if (tw.timer) clearInterval(tw.timer);
+            tw.displayedWords = tw.fullText.split(/(\s+)/); // show all
+            tw.displayedIdx = tw.displayedWords.length;
+            tw.bubble.innerHTML = renderMarkdown(tw.fullText);
+            msgList.scrollTop = msgList.scrollHeight;
+            typewriters.delete(msgId);
+            return;
+        }
+
+        // Split full text into word tokens (preserving whitespace)
+        const allWords = tw.fullText.split(/(\s+)/);
+        const newWords = allWords.length - tw.displayedIdx;
+        if (newWords <= 0) return;
+
+        if (tw.timer) clearInterval(tw.timer);
+
+        // Spread new words across ~550ms
+        const wordsPerStep = Math.max(Math.ceil(newWords / 8), 1);
+        const steps = Math.ceil(newWords / wordsPerStep);
+        const stepInterval = Math.floor(550 / Math.max(steps, 1));
+
+        tw.timer = setInterval(() => {
+            tw.displayedIdx = Math.min(tw.displayedIdx + wordsPerStep, allWords.length);
+            const visible = allWords.slice(0, tw.displayedIdx).join('');
+            tw.bubble.innerHTML = renderMarkdown(visible);
+            msgList.scrollTop = msgList.scrollHeight;
+
+            if (tw.displayedIdx >= allWords.length) {
+                clearInterval(tw.timer);
+                tw.timer = null;
+            }
+        }, stepInterval);
+    }
+
+    // Render server-side messages as markdown
+    document.querySelectorAll('[data-raw]').forEach(el => {
+        const raw = el.dataset.raw;
+        if (raw) el.innerHTML = renderMarkdown(raw);
+    });
+
+    const configResp = await fetch('/chat/firebase-config');
+    const config = await configResp.json();
+
+    const app = initializeApp({ projectId: config.projectId });
+    const db = getFirestore(app);
+
+    const sessionId = '{{ session_id }}';
+    const msgList = document.getElementById('message-list');
+    msgList.scrollTop = msgList.scrollHeight;
+    const seenIds = new Set();
+
+    document.querySelectorAll('[data-msg-id]').forEach(el => {
+        seenIds.add(el.dataset.msgId);
+    });
+
+    function createMessageEl(data) {
+        const isUser = data.role === 'user';
+
+        const wrapper = document.createElement('div');
+        wrapper.className = `flex ${isUser ? 'justify-end' : 'justify-start'}`;
+        wrapper.dataset.msgId = data.message_id;
+        wrapper.id = `msg-${data.message_id}`;
+
+        const bubble = document.createElement('div');
+        bubble.className = bubbleClasses(data.role);
+
+        if (data.streaming && !data.content) {
+            // Thinking state — show dots, start typewriter
+            bubble.innerHTML = thinkingHTML();
+            startTypewriter(data.message_id, bubble);
+        } else if (data.streaming && data.content) {
+            // Streaming already has content — start typewriter mid-stream
+            bubble.innerHTML = '';
+            startTypewriter(data.message_id, bubble);
+            feedTypewriter(data.message_id, data.content, false);
+        } else {
+            bubble.innerHTML = renderMarkdown(data.content || '');
+        }
+
+        wrapper.appendChild(bubble);
+        return wrapper;
+    }
+
+    function updateMessageEl(msgId, data) {
+        const wrapper = document.getElementById(`msg-${msgId}`);
+        if (!wrapper) return;
+
+        const bubble = wrapper.querySelector('div');
+        if (!bubble) return;
+
+        if (typewriters.has(msgId)) {
+            // Feed the typewriter with new content
+            feedTypewriter(msgId, data.content || '', !data.streaming);
+        } else if (data.streaming) {
+            // Late join — start typewriter now
+            startTypewriter(msgId, bubble);
+            feedTypewriter(msgId, data.content || '', false);
+        } else {
+            // Not streaming — just render
+            bubble.innerHTML = renderMarkdown(data.content || '');
+            msgList.scrollTop = msgList.scrollHeight;
+        }
+    }
+
+    const messagesRef = collection(db, 'sessions', sessionId, 'messages');
+    const q = query(messagesRef, orderBy('created_at'));
+
+    onSnapshot(q, (snapshot) => {
+        snapshot.docChanges().forEach((change) => {
+            const data = change.doc.data();
+            data.message_id = change.doc.id;
+
+            if (change.type === 'added') {
+                if (seenIds.has(data.message_id)) return;
+                seenIds.add(data.message_id);
+
+                const empty = document.getElementById('empty-state');
+                if (empty) empty.remove();
+
+                msgList.appendChild(createMessageEl(data));
+                msgList.scrollTop = msgList.scrollHeight;
+            }
+
+            if (change.type === 'modified') {
+                // Streaming update — progressively render content
+                updateMessageEl(data.message_id, data);
+            }
+        });
+    }, (error) => {
+        console.error('Firestore listener error:', error);
+    });
+
+    const chatInput = document.getElementById('chat-input');
+    const chatForm = document.getElementById('chat-form');
+
+    chatInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            if (chatInput.value.trim()) {
+                htmx.trigger(chatForm, 'submit');
+            }
+        }
+    });
+
+    chatInput.addEventListener('input', () => {
+        chatInput.style.height = 'auto';
+        chatInput.style.height = Math.min(chatInput.scrollHeight, 150) + 'px';
+    });
+
+    chatForm.addEventListener('htmx:afterRequest', () => {
+        chatInput.value = '';
+        chatInput.style.height = 'auto';
+        chatInput.focus();
+    });
+</script>
+{% endblock %}

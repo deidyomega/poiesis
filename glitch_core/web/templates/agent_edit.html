@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+
+{% block title %}Edit {{ agent.name }} — {{ theme.app_name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl">
+    <div class="flex items-center justify-between mb-6">
+        <div>
+            <a href="/agents" class="text-xs text-glitch-muted hover:text-glitch-accent transition-colors">&larr; Back to Agents</a>
+            <h1 class="text-2xl font-semibold text-glitch-text mt-1">{{ agent.name }}</h1>
+            <p class="text-sm text-glitch-muted">{{ agent.agent_id }}</p>
+        </div>
+        <form action="/agents/{{ agent.agent_id }}/delete" method="post"
+              onsubmit="return confirm('Delete agent {{ agent.name }}?')">
+            <button type="submit"
+                    class="px-3 py-1.5 text-xs rounded-glitch bg-glitch-error/20 text-glitch-error hover:bg-glitch-error/30 transition-colors">
+                Delete Agent
+            </button>
+        </form>
+    </div>
+
+    <form action="/agents/{{ agent.agent_id }}/save" method="post" class="space-y-4">
+        <!-- Basic Info -->
+        <div class="grid grid-cols-2 gap-3">
+            <div>
+                <label class="block text-xs text-glitch-muted mb-1">Name</label>
+                <input type="text" name="name" value="{{ agent.name }}" required
+                       class="w-full bg-glitch-surface border border-glitch-border rounded-glitch px-3 py-2 text-sm text-glitch-text focus:outline-none focus:border-glitch-accent">
+            </div>
+            <div>
+                <label class="block text-xs text-glitch-muted mb-1">Model</label>
+                <input type="text" name="model" value="{{ agent.model }}" required
+                       class="w-full bg-glitch-surface border border-glitch-border rounded-glitch px-3 py-2 text-sm text-glitch-text focus:outline-none focus:border-glitch-accent">
+            </div>
+        </div>
+
+        <div>
+            <label class="block text-xs text-glitch-muted mb-1">Description</label>
+            <input type="text" name="description" value="{{ agent.description or '' }}"
+                   class="w-full bg-glitch-surface border border-glitch-border rounded-glitch px-3 py-2 text-sm text-glitch-text focus:outline-none focus:border-glitch-accent"
+                   placeholder="What does this agent do?">
+        </div>
+
+        <!-- Soul / System Prompt -->
+        <div>
+            <label class="block text-xs text-glitch-muted mb-1">System Prompt (Soul)</label>
+            <textarea name="system_prompt" rows="12"
+                      class="w-full bg-glitch-surface border border-glitch-border rounded-glitch px-3 py-2 text-sm text-glitch-text font-mono leading-relaxed focus:outline-none focus:border-glitch-accent resize-y"
+                      spellcheck="false">{{ agent.system_prompt or '' }}</textarea>
+        </div>
+
+        <!-- Config -->
+        <div class="grid grid-cols-2 gap-3">
+            <div>
+                <label class="block text-xs text-glitch-muted mb-1">Output Type</label>
+                <select name="output_type"
+                        class="w-full bg-glitch-surface border border-glitch-border rounded-glitch px-3 py-2 text-sm text-glitch-text focus:outline-none focus:border-glitch-accent">
+                    {% for otype in output_types %}
+                    <option value="{{ otype }}" {% if agent.output_type == otype %}selected{% endif %}>{{ otype }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs text-glitch-muted mb-1">Affinity</label>
+                <select name="affinity"
+                        class="w-full bg-glitch-surface border border-glitch-border rounded-glitch px-3 py-2 text-sm text-glitch-text focus:outline-none focus:border-glitch-accent">
+                    {% for aff in ["any", "preferred", "exclusive"] %}
+                    <option value="{{ aff }}" {% if agent.affinity == aff %}selected{% endif %}>{{ aff|title }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+            <div>
+                <label class="block text-xs text-glitch-muted mb-1">Content Rating</label>
+                <select name="content_rating"
+                        class="w-full bg-glitch-surface border border-glitch-border rounded-glitch px-3 py-2 text-sm text-glitch-text focus:outline-none focus:border-glitch-accent">
+                    <option value="sfw" {% if agent.content_rating == 'sfw' %}selected{% endif %}>SFW</option>
+                    <option value="nsfw" {% if agent.content_rating == 'nsfw' %}selected{% endif %}>NSFW</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs text-glitch-muted mb-1">Timeout (seconds)</label>
+                <input type="number" name="timeout_seconds" value="{{ agent.timeout_seconds or 120 }}" min="10" max="600"
+                       class="w-full bg-glitch-surface border border-glitch-border rounded-glitch px-3 py-2 text-sm text-glitch-text focus:outline-none focus:border-glitch-accent">
+            </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+            <div>
+                <label class="block text-xs text-glitch-muted mb-1">Triggers (comma-separated)</label>
+                <input type="text" name="triggers" value="{{ (agent.triggers or [])|join(', ') }}"
+                       class="w-full bg-glitch-surface border border-glitch-border rounded-glitch px-3 py-2 text-sm text-glitch-text focus:outline-none focus:border-glitch-accent"
+                       placeholder="write code, fix bug, review">
+            </div>
+            <div>
+                <label class="block text-xs text-glitch-muted mb-1">Required Capabilities (comma-separated)</label>
+                <input type="text" name="required_capabilities" value="{{ (agent.required_capabilities or [])|join(', ') }}"
+                       class="w-full bg-glitch-surface border border-glitch-border rounded-glitch px-3 py-2 text-sm text-glitch-text focus:outline-none focus:border-glitch-accent"
+                       placeholder="api, tailnet, local, gpu">
+            </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+            <input type="checkbox" name="enabled" id="enabled" {% if agent.enabled %}checked{% endif %}
+                   class="rounded border-glitch-border text-glitch-accent focus:ring-glitch-accent">
+            <label for="enabled" class="text-sm text-glitch-text">Enabled</label>
+        </div>
+
+        <div class="flex gap-2 justify-end pt-2">
+            <a href="/agents"
+               class="px-4 py-2 text-sm rounded-glitch border border-glitch-border text-glitch-muted hover:bg-glitch-border/50 transition-colors">
+                Cancel
+            </a>
+            <button type="submit"
+                    class="px-4 py-2 text-sm rounded-glitch bg-glitch-accent text-white hover:opacity-90 transition-opacity">
+                Save Agent
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}

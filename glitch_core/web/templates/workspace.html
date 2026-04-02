@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block title %}Workspace — {{ theme.app_name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl">
+    <div class="flex items-center justify-between mb-6">
+        <h1 class="text-2xl font-semibold text-glitch-text">Workspace</h1>
+        {% if total_size %}
+        <span class="text-xs text-glitch-muted">{{ "%.1f"|format(total_size / 1024) }}KB</span>
+        {% endif %}
+    </div>
+
+    {% if error %}
+    <div class="bg-glitch-error/20 border border-glitch-error/30 rounded-glitch p-4 mb-4">
+        <p class="text-sm text-glitch-error">{{ error }}</p>
+    </div>
+    {% endif %}
+
+    <!-- Breadcrumbs -->
+    <div class="flex items-center gap-1 text-sm mb-4">
+        <a href="/workspace" class="text-glitch-muted hover:text-glitch-accent transition-colors">workspace</a>
+        {% for crumb in breadcrumbs %}
+        <span class="text-glitch-border">/</span>
+        <a href="/workspace/{{ crumb.path }}" class="text-glitch-muted hover:text-glitch-accent transition-colors">{{ crumb.name }}</a>
+        {% endfor %}
+    </div>
+
+    {% if parent_path is not none %}
+    <a href="/workspace/{{ parent_path }}"
+       class="flex items-center gap-2 px-3 py-2 text-sm text-glitch-muted hover:text-glitch-accent hover:bg-glitch-surface rounded-glitch transition-colors mb-1">
+        <span>⬆️</span>
+        <span>..</span>
+    </a>
+    {% endif %}
+
+    {% if entries %}
+    <div class="bg-glitch-surface border border-glitch-border rounded-glitch divide-y divide-glitch-border">
+        {% for entry in entries %}
+        <div class="flex items-center justify-between px-4 py-2.5 hover:bg-glitch-border/20 transition-colors">
+            <a href="/workspace/{{ entry.path }}"
+               class="flex items-center gap-3 flex-1 min-w-0">
+                <span class="text-lg shrink-0">{% if entry.is_dir %}📁{% else %}📄{% endif %}</span>
+                <div class="min-w-0">
+                    <div class="text-sm text-glitch-text truncate">{{ entry.name }}</div>
+                    {% if not entry.is_dir %}
+                    <div class="text-xs text-glitch-muted">
+                        {{ "%.1f"|format(entry.size_bytes / 1024) }}KB
+                        {% if entry.modified_at %} · {{ entry.modified_at }}{% endif %}
+                    </div>
+                    {% endif %}
+                </div>
+            </a>
+            <div class="flex items-center gap-2 shrink-0">
+                {% if not entry.is_dir %}
+                <a href="/workspace/{{ entry.path }}" download
+                   class="px-2 py-1 text-xs rounded-glitch border border-glitch-border text-glitch-muted hover:border-glitch-accent/50 transition-colors">
+                    Download
+                </a>
+                {% endif %}
+                <form action="/workspace/delete/{{ entry.path }}" method="post"
+                      onsubmit="return confirm('Delete {{ entry.name }}?')">
+                    <button type="submit"
+                            class="px-2 py-1 text-xs rounded-glitch border border-glitch-border text-glitch-muted hover:border-glitch-error/50 hover:text-glitch-error transition-colors">
+                        Delete
+                    </button>
+                </form>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% elif not error %}
+    <div class="text-center py-12">
+        <div class="text-4xl mb-3">📁</div>
+        <h3 class="text-lg font-medium text-glitch-text mb-1">Workspace is empty</h3>
+        <p class="text-sm text-glitch-muted">Ask Glitch to build something for you — scripts, websites, data files will appear here.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

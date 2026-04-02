@@ -1,0 +1,54 @@
+{% set category_colors = {
+    "identity": theme.colors.tag_identity,
+    "relationship": theme.colors.tag_relationship,
+    "preference": theme.colors.tag_preference,
+    "fact": theme.colors.tag_fact,
+    "skill": theme.colors.tag_skill,
+    "medical": theme.colors.tag_medical,
+    "work": theme.colors.tag_work,
+    "hobby": theme.colors.tag_hobby,
+    "other": theme.colors.tag_other,
+} %}
+<div id="memory-{{ memory.memory_id }}" class="bg-glitch-surface border border-glitch-border rounded-glitch p-4 hover:border-glitch-accent/30 transition-colors">
+    <div class="flex items-start justify-between gap-3">
+        <div class="flex-1 min-w-0">
+            <!-- Category Tag -->
+            <span class="inline-block text-xs font-medium px-2 py-0.5 rounded-full mb-2"
+                  style="background-color: {{ category_colors.get(memory.category, theme.colors.tag_other) }}20; color: {{ category_colors.get(memory.category, theme.colors.tag_other) }}">
+                {{ memory.category }}
+            </span>
+
+            <!-- Content -->
+            <p class="text-sm text-glitch-text leading-relaxed">{{ memory.content }}</p>
+
+            <!-- Confidence Bar -->
+            <div class="mt-2 flex items-center gap-2">
+                <div class="flex-1 h-1 bg-glitch-border rounded-full overflow-hidden max-w-[100px]">
+                    <div class="h-full bg-glitch-accent rounded-full" style="width: {{ (memory.confidence * 100)|int }}%"></div>
+                </div>
+                <span class="text-xs text-glitch-muted">v{{ memory.version }}</span>
+            </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="flex flex-col gap-1 shrink-0">
+            <button hx-get="/memories/{{ memory.memory_id }}/detail"
+                    hx-target="#memory-{{ memory.memory_id }}"
+                    hx-swap="outerHTML"
+                    class="p-1.5 rounded-glitch text-glitch-muted hover:text-glitch-accent hover:bg-glitch-border/50 transition-colors"
+                    title="Edit">
+                ✏️
+            </button>
+            {% if memory.previous_content %}
+            <button hx-post="/memories/{{ memory.memory_id }}/rollback"
+                    hx-target="#memory-{{ memory.memory_id }}"
+                    hx-swap="outerHTML"
+                    hx-confirm="Revert this memory to its previous version?"
+                    class="p-1.5 rounded-glitch text-glitch-muted hover:text-glitch-warning hover:bg-glitch-border/50 transition-colors"
+                    title="Undo">
+                ↩️
+            </button>
+            {% endif %}
+        </div>
+    </div>
+</div>

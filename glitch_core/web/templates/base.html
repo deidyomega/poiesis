@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}{{ theme.app_name }}{% endblock %}</title>
+
+    <!-- Tailwind CDN with dynamic glitch color palette -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        glitch: {
+                            bg: '{{ theme.colors.bg }}',
+                            surface: '{{ theme.colors.surface }}',
+                            border: '{{ theme.colors.border }}',
+                            accent: '{{ theme.colors.accent }}',
+                            text: '{{ theme.colors.text }}',
+                            muted: '{{ theme.colors.muted }}',
+                            success: '{{ theme.colors.success }}',
+                            warning: '{{ theme.colors.warning }}',
+                            error: '{{ theme.colors.error }}',
+                        }
+                    },
+                    fontFamily: {
+                        glitch: [{% for f in theme.font_family.split(',') %}'{{ f.strip() }}'{% if not loop.last %}, {% endif %}{% endfor %}],
+                    },
+                    borderRadius: {
+                        glitch: '{{ theme.border_radius }}',
+                    },
+                    width: {
+                        sidebar: '{{ theme.sidebar_width }}',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- HTMX -->
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+
+    <!-- Optional Google Font -->
+    {% if theme.font_cdn %}
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="{{ theme.font_cdn }}" rel="stylesheet">
+    {% endif %}
+
+    {% if theme.favicon_url %}
+    <link rel="icon" href="{{ theme.favicon_url }}">
+    {% endif %}
+
+    <style>
+        body { background-color: {{ theme.colors.bg }}; color: {{ theme.colors.text }}; font-family: {% for f in theme.font_family.split(',') %}{% if ' ' in f.strip() %}'{{ f.strip() }}'{% else %}{{ f.strip() }}{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}; }
+        .htmx-swapping { opacity: 0; transition: opacity 0.2s ease-out; }
+        .htmx-settling { opacity: 1; transition: opacity 0.2s ease-in; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: {{ theme.colors.bg }}; }
+        ::-webkit-scrollbar-thumb { background: {{ theme.colors.border }}; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: {{ theme.colors.muted }}; }
+    </style>
+
+    {% block head %}{% endblock %}
+</head>
+<body class="min-h-screen bg-glitch-bg text-glitch-text font-glitch">
+    <div class="flex min-h-screen">
+        <!-- Sidebar -->
+        {% include "components/nav.html" %}
+
+        <!-- Main Content -->
+        <main class="flex-1 p-6 overflow-y-auto" style="margin-left: {{ theme.sidebar_width }}">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+
+    <!-- Modal Container -->
+    <div id="modal-container" class="fixed inset-0 z-50 hidden">
+        <div class="absolute inset-0 bg-black/50" onclick="document.getElementById('modal-container').classList.add('hidden')"></div>
+        <div id="modal-content" class="relative z-10 mx-auto mt-20 max-w-lg">
+        </div>
+    </div>
+
+    <script>
+        // Global HTMX event listeners
+        document.body.addEventListener('showModal', function(evt) {
+            document.getElementById('modal-container').classList.remove('hidden');
+        });
+        document.body.addEventListener('hideModal', function(evt) {
+            document.getElementById('modal-container').classList.add('hidden');
+        });
+    </script>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard — {{ theme.app_name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl">
+    <h1 class="text-2xl font-semibold text-glitch-text mb-6">Dashboard</h1>
+
+    <!-- Stats Grid -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+        <div class="bg-glitch-surface border border-glitch-border rounded-glitch p-4">
+            <div class="text-glitch-muted text-sm">Workers Online</div>
+            <div class="text-2xl font-semibold text-glitch-text mt-1">{{ worker_count }}</div>
+        </div>
+        <div class="bg-glitch-surface border border-glitch-border rounded-glitch p-4">
+            <div class="text-glitch-muted text-sm">Last Compaction</div>
+            <div class="text-lg font-semibold text-glitch-text mt-1" data-utc="{{ last_compaction_utc }}">{{ last_compaction }}</div>
+        </div>
+        <div class="bg-glitch-surface border border-glitch-border rounded-glitch p-4">
+            <div class="text-glitch-muted text-sm">Version</div>
+            <div class="text-2xl font-semibold text-glitch-text mt-1">{{ version }}</div>
+        </div>
+    </div>
+
+    <!-- Quick Links -->
+    <h2 class="text-lg font-semibold text-glitch-text mb-3">Quick Access</h2>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <a href="/chat" class="bg-glitch-surface border border-glitch-border rounded-glitch p-4 hover:border-glitch-accent/50 transition-colors block">
+            <div class="text-lg mb-1">💬</div>
+            <div class="font-medium text-sm text-glitch-text">Chat</div>
+            <div class="text-xs text-glitch-muted">Talk to Glitch</div>
+        </a>
+        <a href="/agents" class="bg-glitch-surface border border-glitch-border rounded-glitch p-4 hover:border-glitch-accent/50 transition-colors block">
+            <div class="text-lg mb-1">🤖</div>
+            <div class="font-medium text-sm text-glitch-text">Agents</div>
+            <div class="text-xs text-glitch-muted">Manage agents & souls</div>
+        </a>
+        <a href="/memories" class="bg-glitch-surface border border-glitch-border rounded-glitch p-4 hover:border-glitch-accent/50 transition-colors block">
+            <div class="text-lg mb-1">🧠</div>
+            <div class="font-medium text-sm text-glitch-text">Memories</div>
+            <div class="text-xs text-glitch-muted">Browse core memories</div>
+        </a>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Convert UTC timestamps to local time
+    document.querySelectorAll('[data-utc]').forEach(el => {
+        const utc = el.dataset.utc;
+        if (utc && utc !== 'Never') {
+            try {
+                const d = new Date(utc);
+                if (!isNaN(d)) el.textContent = d.toLocaleString();
+            } catch(e) {}
+        }
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,29 @@
+<div class="bg-glitch-surface border border-glitch-border rounded-glitch p-4">
+    <div class="flex items-center gap-3">
+        <!-- Status dot -->
+        <div class="w-2.5 h-2.5 rounded-full shrink-0 {% if worker.online %}bg-glitch-success{% else %}bg-glitch-error{% endif %}"></div>
+
+        <div class="flex-1 min-w-0">
+            <div class="font-medium text-sm text-glitch-text truncate">{{ worker.node_name }}</div>
+            <div class="text-xs text-glitch-muted">
+                {% if worker.capabilities %}
+                {{ worker.capabilities | join(", ") }}
+                {% else %}
+                No capabilities
+                {% endif %}
+            </div>
+        </div>
+
+        {% if worker.current_task %}
+        <span class="text-xs bg-glitch-accent/20 text-glitch-accent px-2 py-0.5 rounded-full">
+            Working
+        </span>
+        {% endif %}
+    </div>
+
+    {% if worker.last_heartbeat %}
+    <div class="mt-2 text-xs text-glitch-muted">
+        Last heartbeat: <span data-utc="{{ worker.last_heartbeat_utc }}">{{ worker.last_heartbeat }}</span>
+    </div>
+    {% endif %}
+</div>

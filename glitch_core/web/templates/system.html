@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+
+{% block title %}System — {{ theme.app_name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl">
+    <h1 class="text-2xl font-semibold text-glitch-text mb-6">System</h1>
+
+    <!-- Project Settings -->
+    <h2 class="text-lg font-semibold text-glitch-text mb-3">Project Settings</h2>
+    <div class="bg-glitch-surface border border-glitch-border rounded-glitch divide-y divide-glitch-border mb-6">
+        <div class="flex items-center justify-between p-3">
+            <div>
+                <span class="text-sm text-glitch-text">Version</span>
+                <p class="text-xs text-glitch-muted mt-0.5">Glitch Core version</p>
+            </div>
+            <span class="text-sm text-glitch-text font-mono">{{ project_meta.version }}</span>
+        </div>
+        <div class="flex items-center justify-between p-3">
+            <div>
+                <span class="text-sm text-glitch-text">Schema Version</span>
+                <p class="text-xs text-glitch-muted mt-0.5">Database schema version</p>
+            </div>
+            <span class="text-sm text-glitch-text font-mono">{{ project_meta.schema_version }}</span>
+        </div>
+        <div class="flex items-center justify-between p-3">
+            <div>
+                <span class="text-sm text-glitch-text">Firebase Project</span>
+                <p class="text-xs text-glitch-muted mt-0.5">Connected Firestore project</p>
+            </div>
+            <span class="text-sm text-glitch-text font-mono">{{ project_meta.firebase_project }}</span>
+        </div>
+        <div class="flex items-center justify-between p-3">
+            <div>
+                <span class="text-sm text-glitch-text">Default Agent</span>
+                <p class="text-xs text-glitch-muted mt-0.5">The agent new chat sessions use by default</p>
+            </div>
+            <form action="/system/settings/default-agent" method="post" class="flex items-center gap-2">
+                <select name="default_agent"
+                        class="bg-glitch-bg border border-glitch-border rounded-glitch px-2 py-1 text-sm text-glitch-text focus:outline-none focus:border-glitch-accent">
+                    {% for agent in agents %}
+                    <option value="{{ agent.agent_id }}" {% if project_meta.default_agent == agent.agent_id %}selected{% endif %}>
+                        {{ agent.name }} ({{ agent.agent_id }})
+                    </option>
+                    {% endfor %}
+                </select>
+                <button type="submit"
+                        class="px-2 py-1 text-xs rounded-glitch bg-glitch-accent text-white hover:opacity-90 transition-opacity">
+                    Save
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Feature Flags -->
+    <h2 class="text-lg font-semibold text-glitch-text mb-3">Feature Flags</h2>
+    {% if flag_items %}
+    <div class="bg-glitch-surface border border-glitch-border rounded-glitch divide-y divide-glitch-border mb-6">
+        {% for flag in flag_items %}
+        <div class="flex items-center justify-between p-3">
+            <div>
+                <span class="text-sm text-glitch-text">{{ flag.label }}</span>
+                {% if flag.description %}
+                <p class="text-xs text-glitch-muted mt-0.5">{{ flag.description }}</p>
+                {% endif %}
+            </div>
+            <form action="/system/flags/toggle" method="post">
+                <input type="hidden" name="flag" value="{{ flag.key }}">
+                <button type="submit"
+                        class="text-xs px-3 py-1 rounded-full transition-colors
+                               {% if flag.value %}bg-glitch-success/20 text-glitch-success hover:bg-glitch-success/30{% else %}bg-glitch-border text-glitch-muted hover:bg-glitch-border/80{% endif %}">
+                    {{ "Enabled" if flag.value else "Disabled" }}
+                </button>
+            </form>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p class="text-sm text-glitch-muted mb-6">No feature flags defined.</p>
+    {% endif %}
+
+    <!-- Compaction History -->
+    <h2 class="text-lg font-semibold text-glitch-text mb-3">Compaction History</h2>
+    {% if compaction_runs %}
+    <div class="space-y-2">
+        {% for run in compaction_runs %}
+        <div class="bg-glitch-surface border border-glitch-border rounded-glitch p-3">
+            <div class="flex items-center justify-between">
+                <span class="text-sm font-medium text-glitch-text">{{ run.run_id }}</span>
+                <span class="text-xs px-2 py-0.5 rounded-full
+                    {% if run.status == 'completed' %}bg-glitch-success/20 text-glitch-success
+                    {% elif run.status == 'failed' %}bg-glitch-error/20 text-glitch-error
+                    {% elif run.status == 'skipped' %}bg-glitch-border text-glitch-muted
+                    {% elif run.status == 'rolled_back' %}bg-glitch-warning/20 text-glitch-warning
+                    {% else %}bg-glitch-accent/20 text-glitch-accent{% endif %}">
+                    {{ run.status }}
+                </span>
+            </div>
+            <div class="text-xs text-glitch-muted mt-1">
+                {{ run.journals_read | default(0) }} journals,
+                {{ run.memories_created | default(0) }} created,
+                {{ run.memories_updated | default(0) }} updated
+                {% if run.errors %} · {{ run.errors | length }} errors{% endif %}
+            </div>
+            <div class="text-xs text-glitch-muted mt-0.5" data-utc="{{ run.completed_at }}">
+                {{ run.completed_at }}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="text-center py-8">
+        <div class="text-3xl mb-2">📦</div>
+        <p class="text-sm text-glitch-muted">No compaction runs yet. Run <code class="text-glitch-accent">glitch compaction run --force</code> to trigger one.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.querySelectorAll('[data-utc]').forEach(el => {
+        const utc = el.dataset.utc;
+        if (utc && utc !== 'None') {
+            try {
+                const d = new Date(utc);
+                if (!isNaN(d)) el.textContent = d.toLocaleString();
+            } catch(e) {}
+        }
+    });
+</script>
+{% endblock %}
