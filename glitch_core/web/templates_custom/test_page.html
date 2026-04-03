@@ -1,5 +1,10 @@
 {% extends "base.html" %}
+{% set active_page = "test_page" %}
+
+{% block title %}Test Page{% endblock %}
 
 {% block content %}
-<h1>Hello World</h1>
+<div class="max-w-7xl mx-auto">
+    <h1>Hello World</h1>
+</div>
 {% endblock %}
