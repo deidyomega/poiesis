@@ -6,7 +6,7 @@ router = APIRouter(prefix="/test_page")
 
 PAGE_META = PageMeta(
     title="Test Page",
-    icon="📄",
+    icon="file",
     nav_section="custom",
     nav_order=50,
     route_prefix="/test_page"
@@ -14,8 +14,7 @@ PAGE_META = PageMeta(
 
 @router.get("/", response_class=HTMLResponse)
 async def test_page(request: Request):
-    """Test page with Hello World."""
-    return await request.app.state.templates.TemplateResponse(
-        "test_page.html",
-        {"request": request}
+    return request.app.state.templates.TemplateResponse(
+        request,
+        "test_page.html"
     )
