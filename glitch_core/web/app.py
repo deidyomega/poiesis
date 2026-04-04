@@ -4,7 +4,9 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI
+import jinja2
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from glitch_core.web.engine import PageEngine
@@ -55,6 +57,14 @@ def create_app(db: Any = None) -> FastAPI:
             db=db,
             page_engine=page_engine,
             templates=templates,
+        )
+
+    # Handle deleted custom pages gracefully (route still mounted, template gone)
+    @app.exception_handler(jinja2.exceptions.TemplateNotFound)
+    async def template_not_found_handler(request: Request, exc: jinja2.exceptions.TemplateNotFound) -> HTMLResponse:
+        return HTMLResponse(
+            content=f"<h1>404 — Page Not Found</h1><p>Template <code>{exc.name}</code> no longer exists.</p>",
+            status_code=404,
         )
 
     # Store references on app state for access in routes

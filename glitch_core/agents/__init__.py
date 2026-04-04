@@ -120,6 +120,12 @@ def _can_run_model(model: str, env: GlitchEnv) -> bool:
         return bool(env.anthropic_api_key)
     if model.startswith("google-gla:") or model.startswith("gemini:"):
         return bool(env.gemini_api_key)
+    if model.startswith("openai:"):
+        return bool(env.openai_api_key)
+    if model.startswith("mistral:"):
+        return bool(env.mistral_api_key)
+    if model.startswith("groq:"):
+        return bool(env.groq_api_key)
     if model.startswith("ollama:"):
         return bool(env.ollama_host)
     return True

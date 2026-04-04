@@ -23,11 +23,31 @@ Tech stack:
 
 The Python module MUST define:
 - `router = APIRouter(prefix="/your_prefix")`
-- `PAGE_META = PageMeta(title="...", icon="...", nav_section="custom", nav_order=50, route_prefix="/your_prefix")`
+- `PAGE_META = PageMeta(title="...", icon="🔧", nav_section="custom", nav_order=50, route_prefix="/your_prefix")`
+  - The `icon` field MUST be a single emoji character (e.g. "🧪", "📊", "🎨"), NOT a Font Awesome class or icon name
 
 Import PageMeta from: `from glitch_core.web.engine import PageMeta`
 
-Route handlers use: `templates.TemplateResponse(request, "your_template.html", context={{...}})`
+CRITICAL — route handlers MUST follow this exact pattern:
+```python
+@router.get("/")
+async def my_page(request: Request):
+    templates = request.app.state.templates
+    return templates.TemplateResponse(request, "my_template.html", context={{"key": "value"}})
+```
+
+Rules:
+- ALWAYS get templates from `request.app.state.templates` inside the route handler
+- NEVER create your own Jinja2Templates instance
+- NEVER import templates from anywhere — they are ONLY on request.app.state
+- NEVER use `await` with TemplateResponse — it returns a Response, not a coroutine
+- TemplateResponse signature is: `templates.TemplateResponse(request, template_name, context={{...}})`
+  - First arg MUST be the Request object (NOT the template name!)
+  - Second arg is the template name string
+  - Third arg is optional context dict
+  - WRONG: `templates.TemplateResponse("name.html", {{"request": request}})`
+  - RIGHT: `templates.TemplateResponse(request, "name.html")`
+- Only import from: fastapi, glitch_core.web.engine (PageMeta), standard library
 
 The Jinja2 template MUST:
 - Start with `{{% extends "base.html" %}}`

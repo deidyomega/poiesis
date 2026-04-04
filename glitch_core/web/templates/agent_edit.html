@@ -102,6 +102,49 @@
             </div>
         </div>
 
+        <!-- Tool Groups -->
+        <div>
+            <label class="block text-xs text-glitch-muted mb-2">Capabilities</label>
+            <div class="bg-glitch-surface border border-glitch-border rounded-glitch p-3 space-y-2">
+                {% for group_id, group in tool_groups.items() %}
+                <label class="flex items-start gap-2 cursor-pointer">
+                    <input type="checkbox" name="tool_groups" value="{{ group_id }}"
+                           {% if group_id in active_groups %}checked{% endif %}
+                           class="mt-0.5 rounded border-glitch-border text-glitch-accent focus:ring-glitch-accent">
+                    <div class="flex-1 min-w-0">
+                        <span class="text-sm text-glitch-text">{{ group.label }}</span>
+                        <div class="text-xs text-glitch-muted">{{ group.description }}</div>
+                    </div>
+                </label>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Custom Tools (dynamic, from Ouroboros) -->
+        {% if dynamic_tools %}
+        <div>
+            <label class="block text-xs text-glitch-muted mb-2">Custom Tools</label>
+            <div class="bg-glitch-surface border border-glitch-border rounded-glitch p-3 space-y-2">
+                {% for tool in dynamic_tools %}
+                <label class="flex items-start gap-2 cursor-pointer">
+                    <input type="checkbox" name="dynamic_tools" value="{{ tool.tool_id }}"
+                           {% if tool.tool_id in agent_tools %}checked{% endif %}
+                           class="mt-0.5 rounded border-glitch-border text-glitch-accent focus:ring-glitch-accent">
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-1.5">
+                            <span class="text-sm text-glitch-text">{{ tool.name }}</span>
+                            <span class="text-[10px] px-1.5 py-0 rounded-full bg-glitch-accent/20 text-glitch-accent">custom</span>
+                        </div>
+                        {% if tool.description %}
+                        <div class="text-xs text-glitch-muted">{{ tool.description }}</div>
+                        {% endif %}
+                    </div>
+                </label>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
         <div class="flex items-center gap-2">
             <input type="checkbox" name="enabled" id="enabled" {% if agent.enabled %}checked{% endif %}
                    class="rounded border-glitch-border text-glitch-accent focus:ring-glitch-accent">

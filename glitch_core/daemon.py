@@ -25,7 +25,10 @@ def _export_api_keys(env: GlitchEnv) -> None:
     key_map = {
         "ANTHROPIC_API_KEY": env.anthropic_api_key,
         "GEMINI_API_KEY": env.gemini_api_key,
-        "OLLAMA_BASE_URL": env.ollama_host,
+        "OPENAI_API_KEY": env.openai_api_key,
+        "MISTRAL_API_KEY": env.mistral_api_key,
+        "GROQ_API_KEY": env.groq_api_key,
+        "OLLAMA_BASE_URL": f"{env.ollama_host.rstrip('/')}/v1" if env.ollama_host else None,
     }
     for var, val in key_map.items():
         if val and var not in os.environ:
@@ -99,6 +102,9 @@ class GlitchDaemon:
         # Build chat agents for direct conversation (router + any agent)
         self._build_chat_agents()
 
+        # Watch /agents/ for config changes — hot-rebuild agents without restart
+        self._start_agent_watcher()
+
         tasks = [
             asyncio.create_task(self._agent_listener(), name="agent_listener"),
             asyncio.create_task(self._web_server(), name="web_server"),
@@ -107,6 +113,7 @@ class GlitchDaemon:
             asyncio.create_task(self._compaction_scheduler(), name="compaction"),
             asyncio.create_task(self._worker_loop(), name="worker_loop"),
             asyncio.create_task(self._reaper_loop(), name="reaper"),
+            asyncio.create_task(self._reminder_watcher(), name="reminder_watcher"),
         ]
 
         try:
@@ -127,12 +134,72 @@ class GlitchDaemon:
             if not _can_run_model(cfg.model, self.env):
                 continue
 
-            is_router = cfg.agent_id == self._default_agent_id
             try:
-                self._chat_agents[cfg.agent_id] = create_chat_agent(cfg, is_router=is_router)
-                logger.info("Chat agent ready: %s (router=%s)", cfg.agent_id, is_router)
+                self._chat_agents[cfg.agent_id] = create_chat_agent(cfg)
+                logger.info("Chat agent ready: %s (tools=%s)", cfg.agent_id, cfg.tools or [])
             except Exception:
                 logger.exception("Failed to create chat agent: %s", cfg.agent_id)
+
+    def _rebuild_agent(self, agent_id: str, data: dict) -> None:
+        """Rebuild a single chat agent from updated Firestore data."""
+        from glitch_core.agents import _can_run_model
+
+        try:
+            cfg = AgentConfig.model_validate(data)
+
+            if not cfg.enabled:
+                if agent_id in self._chat_agents:
+                    del self._chat_agents[agent_id]
+                    logger.info("Agent disabled: %s", agent_id)
+                return
+
+            if not _can_run_model(cfg.model, self.env):
+                logger.info("Agent '%s' skipped — no API key for %s", agent_id, cfg.model)
+                return
+
+            self._chat_agents[agent_id] = create_chat_agent(cfg)
+
+            # Update the config in our cached list
+            self.agent_configs = [c for c in self.agent_configs if c.agent_id != agent_id]
+            self.agent_configs.append(cfg)
+
+            logger.info("Agent hot-reloaded: %s (tools=%s)", agent_id, cfg.tools or [])
+
+        except Exception:
+            logger.exception("Failed to rebuild agent: %s", agent_id)
+
+    def _start_agent_watcher(self) -> None:
+        """Watch /agents/ collection for changes and hot-rebuild affected agents."""
+        import asyncio
+
+        loop = asyncio.get_event_loop()
+        initial_ids = {cfg.agent_id for cfg in self.agent_configs}
+
+        def _on_agents_snapshot(doc_snapshot, changes, read_time):
+            for change in changes:
+                agent_id = change.document.id
+                if agent_id == "_placeholder":
+                    continue
+
+                if change.type.name in ("ADDED", "MODIFIED"):
+                    # Skip the initial snapshot (we already built these)
+                    if change.type.name == "ADDED" and agent_id in initial_ids:
+                        continue
+
+                    data = change.document.to_dict()
+                    data["agent_id"] = agent_id
+                    loop.call_soon_threadsafe(self._rebuild_agent, agent_id, data)
+
+                elif change.type.name == "REMOVED":
+                    if agent_id in self._chat_agents:
+                        del self._chat_agents[agent_id]
+                        self.agent_configs = [c for c in self.agent_configs if c.agent_id != agent_id]
+                        loop.call_soon_threadsafe(
+                            logger.info, "Agent removed: %s", agent_id
+                        )
+
+        self._agent_watch = self.sync_db.collection("agents").on_snapshot(_on_agents_snapshot)
+        logger.info("Watching /agents/ for config changes")
 
     async def _load_cached_context(self) -> None:
         """Load shared core memories once. Call again to refresh after compaction."""
@@ -382,6 +449,9 @@ class GlitchDaemon:
             deps=deps,
             message_history=messages[:-1] if messages else [],
         ) as stream_result:
+            # stream_text yields text deltas from each model response.
+            # With exhaustive end_strategy, there may be multiple model calls
+            # (text → tool → text), and stream_text covers all of them.
             async for chunk in stream_result.stream_text(delta=True):
                 accumulated += chunk
                 now = time.time()
@@ -389,10 +459,60 @@ class GlitchDaemon:
                     await resp_ref.update({"content": accumulated})
                     last_flush = now
 
-            # Final flush with complete content
-            reply = await stream_result.get_output()
-            if isinstance(reply, str):
-                accumulated = reply
+            # get_output() is authoritative
+            try:
+                reply = await stream_result.get_output()
+                if isinstance(reply, str) and reply != accumulated:
+                    accumulated = reply
+            except Exception:
+                pass
+
+            # Check if tools were called that need a follow-up.
+            # Passive tools (write_journal, read_soul) don't need continuation.
+            # Active tools (workspace_write, create_tool, spawn_sub_agent, etc.) do.
+            PASSIVE_TOOLS = {"write_journal", "read_soul", "set_reminder", "list_reminders", "cancel_reminder", "read_page", "list_pages", "read_tool", "list_tools", "list_agents", "read_agent"}
+            has_active_tool_calls = False
+            try:
+                for m in stream_result.all_messages():
+                    for p in m.parts:
+                        if hasattr(p, "part_kind") and p.part_kind == "tool-call":
+                            tool_name = getattr(p, "tool_name", "") or ""
+                            if tool_name not in PASSIVE_TOOLS:
+                                has_active_tool_calls = True
+                                break
+                    if has_active_tool_calls:
+                        break
+            except Exception:
+                pass
+
+        # If tools were called, the stream only captured one round-trip.
+        # Do a non-streaming follow-up with the full message history so the
+        # model can chain tool calls and summarize all results.
+        if has_active_tool_calls:
+            try:
+                # Signal the UI to show thinking animation
+                await resp_ref.update({"thinking": True})
+
+                follow_up = await chat_agent.run(
+                    "Continue. Complete all remaining steps of the task and summarize the results.",
+                    deps=deps,
+                    message_history=stream_result.all_messages(),
+                )
+                follow_up_text = follow_up.output
+                if isinstance(follow_up_text, str) and follow_up_text:
+                    accumulated = accumulated.rstrip() + "\n\n" + follow_up_text
+                    await resp_ref.update({
+                        "content": accumulated,
+                        "thinking": False,
+                    })
+
+                    # Merge usage from follow-up
+                    stream_result = follow_up  # swap for usage/log extraction below
+                else:
+                    await resp_ref.update({"thinking": False})
+            except Exception:
+                logger.exception("Follow-up after tool calls failed")
+                await resp_ref.update({"thinking": False})
 
         # Extract usage metadata
         usage = stream_result.usage()
@@ -450,6 +570,12 @@ class GlitchDaemon:
         """Run the FastAPI web server."""
         app = create_app(db=self.db)
         app.state.workspace = self.workspace
+
+        # Wire SafeFileWriter to the PageEngine and app for hot-reload
+        if hasattr(app.state, "page_engine") and app.state.page_engine:
+            self.safe_writer.page_engine = app.state.page_engine
+            self.safe_writer.app = app
+            logger.info("SafeFileWriter wired to PageEngine + app for hot-reload")
         config = uvicorn.Config(
             app,
             host="0.0.0.0",
@@ -538,6 +664,83 @@ class GlitchDaemon:
             except Exception:
                 logger.exception("Reaper error")
             await asyncio.sleep(300)
+
+    async def _reminder_watcher(self) -> None:
+        """Check for and fire due reminders every 15 seconds."""
+        from datetime import timezone
+
+        await asyncio.sleep(5)
+        logger.info("Reminder watcher started")
+
+        while self._running:
+            try:
+                from google.cloud.firestore_v1.base_query import FieldFilter
+
+                now = datetime.utcnow()
+
+                # Query unfired reminders that are past their fire_at time
+                query = (
+                    self.db.collection("reminders")
+                    .where(filter=FieldFilter("fired", "==", False))
+                    .limit(20)
+                )
+
+                async for doc in query.stream():
+                    data = doc.to_dict()
+                    fire_at = data.get("fire_at")
+
+                    if fire_at is None:
+                        continue
+
+                    # Handle timezone-aware timestamps from Firestore
+                    if hasattr(fire_at, "tzinfo") and fire_at.tzinfo is not None:
+                        fire_at_naive = fire_at.replace(tzinfo=None)
+                    else:
+                        fire_at_naive = fire_at
+
+                    if fire_at_naive > now:
+                        continue  # Not due yet
+
+                    # Fire the reminder!
+                    session_id = data.get("session_id", "default")
+                    message = data.get("message", "Reminder!")
+                    reminder_id = doc.id
+
+                    logger.info("Firing reminder %s: %s", reminder_id, message[:60])
+
+                    # Write the reminder as a message with notification metadata
+                    msg_id = f"msg_{uuid.uuid4().hex[:12]}"
+                    await (
+                        self.db.collection("sessions")
+                        .document(session_id)
+                        .collection("messages")
+                        .document(msg_id)
+                        .set({
+                            "message_id": msg_id,
+                            "session_id": session_id,
+                            "role": "agent",
+                            "content": message,
+                            "content_rating": "sfw",
+                            "notification": {
+                                "type": "reminder",
+                                "sound": True,
+                                "title": "Reminder",
+                            },
+                            "attachments": [],
+                            "metadata": {"reminder_id": reminder_id},
+                            "created_at": datetime.utcnow(),
+                        })
+                    )
+
+                    # Mark as fired
+                    await self.db.collection("reminders").document(reminder_id).update({
+                        "fired": True,
+                    })
+
+            except Exception:
+                logger.exception("Reminder watcher error")
+
+            await asyncio.sleep(15)
 
 
 async def run_daemon(env: GlitchEnv | None = None) -> None:

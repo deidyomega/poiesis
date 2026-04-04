@@ -1,28 +1,30 @@
-# Glitch Core — Architecture Specification
+# Glitch Core -- Architecture Specification
+
+> Last updated: 2026-04-02 | Version: 0.1.0
 
 ## Project Overview
 
-Glitch Core is a distributed, stateful, self-improving AI entity that replaces the OpenClaw monolith. It is an open-source, self-hosted personal AI system where every installation is single-tenant — the user creates their own Firebase project, runs the daemon on their own hardware, and owns all their data. There is no central server, no shared infrastructure, no published pip package, and no SaaS component.
+Glitch Core is a distributed, stateful, self-improving AI entity. It is an open-source, self-hosted personal AI system where every installation is single-tenant -- the user creates their own Firebase project, runs the daemon on their own hardware, and owns all their data. There is no central server, no shared infrastructure, no published pip package, and no SaaS component.
 
-The system is designed to be malleable. The AI can extend its own tools, generate new UI pages, retheme the interface, and improve its own capabilities at runtime — all without a restart or rebuild step. A non-technical user (e.g. someone's girlfriend) can say "make the app pink and gothic" or "add a page that counts how many times I mentioned my dog" and the system generates and hot-reloads the result.
+The system is designed to be malleable. The AI can extend its own tools, generate new UI pages, retheme the interface, and improve its own capabilities at runtime -- all without a restart or rebuild step. A non-technical user can say "make the app pink and gothic" or "add a page that counts how many times I mentioned my dog" and the system generates and hot-reloads the result.
 
 ### Core Philosophy
 
-- **Firebase is storage, not compute.** Firestore acts as the pub/sub event bus, state store, and memory layer. All code execution happens locally — wherever "local" means to that user (AWS, home lab, laptop).
-- **No Cloud Functions.** Every process runs inside the daemon or worker loops. If the daemon is down, nothing runs — and that's a feature, not a bug. No orphaned functions burning tokens in the background if the user walks away.
+- **Firebase is storage, not compute.** Firestore acts as the pub/sub event bus, state store, and memory layer. All code execution happens locally -- wherever "local" means to that user (AWS, home lab, laptop).
+- **No Cloud Functions.** Every process runs inside the daemon or worker loops. If the daemon is down, nothing runs -- and that's a feature, not a bug. No orphaned functions burning tokens in the background if the user walks away.
 - **Single-tenant by design.** Each user creates their own Firebase project. There is no multi-tenant scoping, no shared databases, no API key custody. One project, one user, total ownership.
 - **The entire application surface is writable by the AI.** Tools (Python modules), UI pages (FastAPI routes + Jinja2 templates), and themes (Firestore documents) are all in the Ouroboros blast radius. The only thing that doesn't change at runtime is the engine itself.
-- **`glitch update` does everything.** `git pull` + dependency install + database migrations + restart. One command, no deployment targets, no build steps.
+- **Firestore is the source of truth for agent configs.** The YAML file (`glitch_core.yaml`) is seed data only -- used once during `glitch bootstrap` to populate `/agents/` in Firestore. After that, all agent configuration lives in Firestore and is editable via the web UI. Changes take effect immediately via `on_snapshot` watchers without any restart.
 
 ### Mental Model
 
 The architecture uses an anatomical metaphor that maps to real system boundaries:
 
-- **The Nervous System** — Firestore. The database schema, pub/sub event bus, real-time sync to clients.
-- **The Subconscious** — Memory compaction pipeline. Background distillation of raw conversation observations into long-term memories.
-- **The Hands** — Execution layer. The daemon that listens for messages, runs tools, executes SSH commands across the Tailnet.
-- **The Hive** — Sub-agent system. Horizontal scaling via Firestore as a task queue, with heterogeneous workers (cloud APIs, local models, GPU rigs).
-- **The Ouroboros** — Self-improvement loop. The system can write, validate, and hot-reload its own tools, UI pages, and themes.
+- **The Nervous System** -- Firestore. The database schema, pub/sub event bus, real-time sync to clients via `on_snapshot`.
+- **The Subconscious** -- Memory compaction pipeline. Background distillation of raw conversation observations into long-term core memories.
+- **The Hands** -- Execution layer. The daemon that listens for messages, runs agents, executes tools.
+- **The Hive** -- Sub-agent system. Horizontal scaling via Firestore as a task queue, with heterogeneous workers (cloud APIs, local models, GPU rigs).
+- **The Ouroboros** -- Self-improvement loop. The system can write, validate, and hot-reload its own tools, UI pages, and themes.
 
 ---
 
@@ -30,17 +32,32 @@ The architecture uses an anatomical metaphor that maps to real system boundaries
 
 | Layer | Technology | Why |
 |-------|-----------|-----|
-| LLM Engine | PydanticAI | Type-safe, schema-enforced agent definitions with structured outputs |
-| State & Pub/Sub | Firebase Firestore | Real-time listeners, free client sync, generous free tier for storage |
-| Web UI | FastAPI + Jinja2 + HTMX + Tailwind CDN | No build step — the entire UI is hot-reloadable by the Ouroboros system |
-| Configuration | Pydantic + PydanticSettings + YAML | Typed config with `.env` files for secrets, YAML for agent definitions |
+| LLM Engine | PydanticAI | Type-safe, schema-enforced agent definitions with structured outputs and streaming |
+| Model Providers | Anthropic, Google (Gemini), OpenAI, Mistral, Groq, Ollama | Six providers supported; selection per-agent via `model` field (e.g. `anthropic:claude-sonnet-4-20250514`) |
+| State & Pub/Sub | Firebase Firestore | Real-time `on_snapshot` listeners, free client sync, generous free tier |
+| Web UI | FastAPI + Jinja2 + HTMX + Tailwind CDN | No build step -- the entire UI is hot-reloadable by the Ouroboros system |
+| Configuration | Pydantic + PydanticSettings + YAML (seed only) | Typed config with `.env` files for secrets, Firestore for runtime agent config |
 | Network Mesh | Tailscale | Secure access between distributed nodes without port forwarding |
-| Local Models | Ollama | Uncensored local model support (the "Spicy" worker) |
+| Local Models | Ollama | Uncensored local model support for content cloud providers refuse |
+| CLI | Click | `glitch start`, `glitch bootstrap`, `glitch nuke`, `glitch status`, subcommands for compaction and workers |
 | Clients | Flutter mobile app, Desktop UI, Web admin | Dumb terminals streaming Firestore in real-time |
+
+### Model Provider Prefixes
+
+The `model` field in every `AgentConfig` uses PydanticAI's provider prefix format. The daemon checks at startup which providers have API keys configured and only creates agents for reachable models.
+
+| Prefix | Provider | Env Var |
+|--------|----------|---------|
+| `anthropic:` | Anthropic (Claude) | `GLITCH_ANTHROPIC_API_KEY` |
+| `google-gla:` / `gemini:` | Google Gemini | `GLITCH_GEMINI_API_KEY` |
+| `openai:` | OpenAI | `GLITCH_OPENAI_API_KEY` |
+| `mistral:` | Mistral | `GLITCH_MISTRAL_API_KEY` |
+| `groq:` | Groq | `GLITCH_GROQ_API_KEY` |
+| `ollama:` | Ollama (local) | `GLITCH_OLLAMA_HOST` |
 
 ### Why Not React?
 
-The self-improving nature of the system requires that the UI layer be writable by the AI at runtime. React requires a build step, which creates a wall between the Ouroboros loop and the UI. With HTMX + Jinja2, a new page is just two text files (a Python route module and an HTML template) that follow the same sandbox-validate-promote pipeline as tool generation. The AI extends the UI the same way it extends backend capabilities — no compilation, no bundling, no restart.
+The self-improving nature of the system requires that the UI layer be writable by the AI at runtime. React requires a build step, which creates a wall between the Ouroboros loop and the UI. With HTMX + Jinja2, a new page is just two text files (a Python route module and an HTML template) that follow the same sandbox-validate-promote pipeline as tool generation. The AI extends the UI the same way it extends backend capabilities -- no compilation, no bundling, no restart.
 
 ### Why Not Cloud Functions?
 
@@ -55,41 +72,520 @@ All Firestore documents map to Pydantic models defined in `glitch_core/schemas.p
 ### Collections
 
 ```
-/meta/project                    — ProjectMeta: version, schema_version, feature flags
-/meta/agent_config               — The parsed glitch_core.yaml content
-/meta/theme                      — GlitchTheme: current UI theme (colors, fonts, branding)
-/meta/compaction_config          — CompactionConfig: schedule, thresholds, safety settings
-/meta/migrations/history/{id}    — MigrationRecord: applied migration audit trail
+/meta/project                    -- ProjectMeta: version, schema_version, default_agent, feature_flags
+/meta/theme                      -- GlitchTheme: current UI theme (colors, fonts, branding)
+/meta/compaction_config          -- CompactionConfig: schedule, thresholds, safety settings
 
-/soul/{doc_id}                   — Core identity, persona, strict directives (SOUL.md content)
-/soul_history/v{n}               — Versioned snapshots of previous soul edits
+/agents/{agent_id}               -- AgentConfig: model, system_prompt (soul), tools list, content_rating,
+                                    model_tier, affinity, triggers, timeout, capabilities, enabled flag
+                                    THIS IS THE SOURCE OF TRUTH for all agent configuration.
 
-/sessions/{session_id}           — Session metadata, connected client info
-/sessions/{sid}/messages/{mid}   — ChatMessage: the real-time chat thread (user + agent + system)
-/sessions/{sid}/sub_tasks/{tid}  — SubAgentTask: the worker queue for sub-agents
+/tools/{tool_id}                 -- ToolRegistration: name, description, filename, created_by, enabled
+                                    Registry of dynamic tools created by Ouroboros.
 
-/journals/{date_id}              — JournalEntry: mid-term scratchpad, passive observations from conversations
-/journals_archive/{id}           — Archived journals after compaction (never deleted)
+/sessions/{session_id}           -- Session metadata including agent_id (which agent this session talks to)
+/sessions/{sid}/messages/{mid}   -- ChatMessage: real-time chat thread (user + agent + sub_agent + system)
+                                    Agent messages include streaming field and usage metadata.
+/sessions/{sid}/sub_tasks/{tid}  -- SubAgentTask: worker task queue, scoped per session
+/sessions/{sid}/run_logs/{lid}   -- Full PydanticAI run traces for debugging
 
-/core_memories/{memory_id}       — CoreMemory: long-term distilled facts (replacement for MEMORY.md)
-/memories_deleted/{id}           — Soft-deleted memories (archived, not destroyed)
+/journals/{journal_id}           -- JournalEntry: mid-term observations from conversations
+/journals_archive/{id}           -- Archived journals after compaction (never deleted)
 
-/memory_review/{id}              — Low-confidence compacted memories awaiting human approval
-/compaction_runs/{run_id}        — CompactionRun: audit log of every compaction execution
+/core_memories/{memory_id}       -- CoreMemory: long-term distilled facts. Memories go here directly
+                                    from compaction -- there is no review queue.
+/memories_deleted/{id}           -- Soft-deleted memories (archived, not destroyed)
 
-/workers/{worker_id}             — WorkerRegistration: heartbeat, capabilities, current task
-/worker_tokens/{token}           — (Reserved, currently unused — no token exchange in single-tenant model)
+/compaction_runs/{run_id}        -- CompactionRun: audit log of every compaction execution
 
-/theme_history/{id}              — Historical theme snapshots
+/workers/{worker_id}             -- WorkerRegistration: heartbeat, capabilities, supported_agents,
+                                    current_task, glitch_version
+
+/theme_history/{id}              -- Historical theme snapshots (saved before each theme change)
 ```
+
+### Removed Collections (from pre-refactor)
+
+- `/soul/` -- **Removed.** Each agent now has its own `system_prompt` field directly in `/agents/{id}`. There is no separate soul collection.
+- `/memory_review/` -- **Removed from the active pipeline.** Compacted memories go straight to `/core_memories/`. The review queue code still exists in `pipeline.py` but is never called -- `require_confidence` in the config controls the minimum threshold, and memories below it are simply not created. (Note: the rollback code still references `memory_review` for backwards compatibility with old runs.)
+- `/meta/agent_config` -- **Removed.** Agent config is now per-agent at `/agents/{id}`, not a single meta document.
 
 ### Key Schema Design Decisions
 
-- **`SubAgentTask` carries both immutable and mutable fields.** The top half (prompt, schema, timeout) is written once by the router and never touched. The bottom half (status, claimed_by, result) is owned by the worker. The router does `set()`, workers do `update()` on just their fields.
-- **`CoreMemory.previous_content` enables one-step rollback.** When the compaction pipeline or a human edits a memory, the old content shifts into `previous_content` and `version` bumps. No full versioning system needed.
-- **`output_schema` is a JSON Schema dict, not a class reference.** The router calls `MyModel.model_json_schema()` and ships the raw dict in the task payload. Workers validate with `model_validate()` on the other end. This decouples deployment of the router from workers.
-- **Streaming tokens go to the `messages` collection, not the task document.** The task doc tracks lifecycle; messages handle content delivery. These concerns stay separated.
-- **Firestore write contention:** the hard limit is ~1 write/sec per document. The session document should be mostly-static metadata. Rapidly-changing state (agent status, streaming) goes into subcollection docs or separate documents.
+- **Agents are Firestore documents, not YAML.** The YAML file is seed data consumed once by `glitch bootstrap`. After that, `/agents/{agent_id}` is the source of truth. The web UI provides full CRUD. The daemon watches `/agents/` with `on_snapshot` and hot-rebuilds agent instances on any change.
+- **Each agent carries its own soul.** The `system_prompt` field in `AgentConfig` is the agent's personality, directives, and persona. There is no separate soul collection. The router's soul is seeded from `DEFAULT_SOUL` in `bootstrap.py`.
+- **`default_agent` is configurable.** `ProjectMeta.default_agent` (at `/meta/project`) determines which agent handles sessions that don't specify one. Defaults to `"router"`.
+- **Multi-agent sessions.** Each session document has an `agent_id` field. Users can start a session that talks directly to any agent (the coder, the researcher, etc.) -- the router is not a mandatory intermediary.
+- **Content rating is config-driven.** The `content_rating` field on `AgentConfig` controls NSFW routing. There is no hardcoded "spicy" concept -- any agent can be marked NSFW. SFW agents cannot dispatch to NSFW agents; users must chat with NSFW agents directly.
+- **`SubAgentTask` carries both immutable and mutable fields.** The top half (prompt, routing, timeout) is set by the dispatching agent. The bottom half (status, claimed_by, result) is owned by the worker.
+- **`CoreMemory.previous_content` enables one-step rollback.** When compaction updates a memory, the old content shifts into `previous_content` and `version` bumps.
+- **Streaming responses via Firestore doc updates.** The daemon creates a placeholder message doc with `streaming: true`, then updates its `content` field every 600ms as tokens arrive. The client's `on_snapshot` listener renders progressively.
+- **Run logs preserve full PydanticAI traces.** Every agent response writes its complete `all_messages_json()` to `/sessions/{sid}/run_logs/{lid}` for debugging.
+
+---
+
+## Agent System Architecture
+
+### No `is_router` Concept
+
+There is no special router class or `is_router` flag. The "router" is just the default agent with dispatch tools (`spawn_sub_agent`) checked in its tool list. Any agent could theoretically have dispatch tools. The default agent is whichever `agent_id` is set in `ProjectMeta.default_agent`.
+
+### Firestore-Driven Agents
+
+All agent configs live at `/agents/{agent_id}` in Firestore. At daemon startup:
+
+1. `load_agents_from_firestore(db)` reads all docs from `/agents/`
+2. `build_agent_registry(configs, env)` creates PydanticAI `Agent` instances for agents this node can run (has the API key, has the capabilities)
+3. `_build_chat_agents()` creates chat-mode agents (output_type=str, with deps injection) for every enabled agent
+4. `_start_agent_watcher()` sets up an `on_snapshot` listener on `/agents/` that hot-rebuilds individual agents when their config changes
+
+An agent config change in the web UI takes effect within seconds -- no restart needed.
+
+### Unified Tool System
+
+Tools come from two sources, assigned to agents via the `tools` list field in `AgentConfig`:
+
+**Builtin Tools** (defined in `glitch_core/agents/builtin_tools.py`):
+
+| Tool ID | Description |
+|---------|-------------|
+| `write_journal` | Log an observation to persistent memory |
+| `spawn_sub_agent` | Delegate a task to a sub-agent worker |
+| `workspace_write` | Write a file to the user's workspace |
+| `workspace_read` | Read a file from the workspace |
+| `workspace_list` | List files in the workspace |
+| `workspace_run` | Execute a Python script from the workspace |
+| `workspace_delete` | Delete a file from the workspace |
+| `create_tool` | Create a new dynamic tool (Ouroboros, requires feature flag) |
+| `create_page` | Create a new web page (Ouroboros, requires feature flag) |
+
+**Dynamic Tools** (Python modules in `tools/` directory):
+
+Created by Ouroboros via `create_tool`. Each `.py` file in `tools/` is a module containing async functions. When an agent's `tools` list includes a dynamic tool ID, the agent factory uses `_attach_dynamic_tools()` to:
+
+1. Load the module via `importlib.util.spec_from_file_location()`
+2. Find all public async functions (non-underscore-prefixed)
+3. Register them as PydanticAI tools on the agent
+
+Dynamic tools are registered in Firestore at `/tools/{tool_id}` for UI visibility.
+
+### System Prompt Construction
+
+The `build_system_prompt()` function in `router.py` dynamically assembles the prompt at runtime from `AgentDeps`:
+
+1. **Agent's soul** -- the `system_prompt` from its `AgentConfig`
+2. **Core memories** -- all non-deleted memories from the cache, formatted as `[category] content`
+3. **Available sub-agents** -- if the agent has `spawn_sub_agent` in its tools, lists all dispatchable agents with their descriptions, triggers, and models. Content rating filtering applies (SFW agents only see SFW sub-agents).
+4. **Tool execution rules** -- instructions to call tools immediately without preamble text
+5. **Journal guidelines** -- rules for when to (and when not to) write journal entries
+
+### AgentDeps
+
+Every chat agent receives an `AgentDeps` instance at runtime containing:
+
+- `agent_config` -- this agent's `AgentConfig`
+- `all_agents` -- list of all agent configs (for dispatch menu)
+- `core_memories` -- cached list of core memory dicts
+- `session_id` -- current session
+- `db` -- async Firestore client
+- `workspace` -- `Workspace` instance
+- `safe_writer` -- `SafeFileWriter` instance
+- `ouroboros_enabled` -- feature flag state
+
+---
+
+## Daemon Architecture
+
+`GlitchDaemon` in `daemon.py` is the main process. It runs seven concurrent asyncio tasks:
+
+| Task | Name | Description |
+|------|------|-------------|
+| Agent Listener | `agent_listener` | Watches all sessions for new user messages via `on_snapshot`. Routes each message to the correct chat agent based on the session's `agent_id`. Streams responses back via Firestore doc updates (600ms batches). |
+| Web Server | `web_server` | FastAPI/uvicorn on `0.0.0.0:8080`. Serves the admin UI. |
+| Self Register | `self_register` | Registers this node as a worker in `/workers/{node_name}` at startup. |
+| Heartbeat | `heartbeat` | Updates `last_heartbeat` on the worker doc every 30 seconds. |
+| Compaction Scheduler | `compaction` | Runs memory compaction periodically (currently interval-based, every 6 hours). Reads config from `/meta/compaction_config`. Refreshes memory cache after successful compaction. |
+| Worker Loop | `worker_loop` | Processes sub-agent tasks dispatched by chat agents. Uses `WorkerDaemon` internally. |
+| Reaper | `reaper` | Reclaims stale tasks from dead workers every 5 minutes. |
+
+### on_snapshot Watchers
+
+The daemon uses Firestore's real-time `on_snapshot` listeners (not polling) for all reactive behavior:
+
+1. **Agent config watcher** -- `_start_agent_watcher()` watches `/agents/` collection. On ADDED/MODIFIED, rebuilds the affected chat agent. On REMOVED, drops it. Uses a sync Firestore client because `on_snapshot` runs callbacks in background threads, then bridges to the asyncio loop via `loop.call_soon_threadsafe()`.
+
+2. **Session message watchers** -- `_subscribe_to_session()` watches `/sessions/{sid}/messages/` for new user messages. One watcher per active session. Also watches the `/sessions/` collection itself to detect new sessions and auto-subscribe.
+
+3. **Worker task watchers** -- The `WorkerDaemon._task_listener()` watches `/sessions/{sid}/sub_tasks/` filtered to `status == "pending"` for task dispatch. Same pattern: one watcher per session, auto-subscribes to new sessions.
+
+### Message Processing Flow
+
+1. User writes a message to `/sessions/{sid}/messages/{mid}` (from the web UI or mobile client)
+2. The session's `on_snapshot` fires, putting `(session_id, msg_id, data)` into an asyncio queue
+3. `_agent_listener` dequeues it, checks `role == "user"` and deduplicates
+4. `_handle_message()` looks up `agent_id` from the session doc, finds the corresponding chat agent
+5. Loads last 20 messages as conversation history
+6. Creates a placeholder response doc with `streaming: true`
+7. Calls `agent.run_stream()` with the message and history
+8. Updates the response doc's `content` every 600ms as tokens arrive
+9. On completion, marks `streaming: false`, writes usage metadata
+10. Writes full PydanticAI trace to `run_logs` subcollection
+
+---
+
+## Worker System
+
+### Architecture
+
+Workers are task executors for sub-agent operations. The primary daemon runs a worker internally; standalone workers can also be started via `glitch workers start` on additional nodes.
+
+### Claim Protocol (`protocol.py`)
+
+When a worker sees a pending task via `on_snapshot`:
+
+1. `_can_handle()` checks local routing filters: affinity, target_worker, capabilities, agent support
+2. `try_claim_task()` reads the task doc, verifies `status == "pending"`, then updates to `status: "claimed"` with `claimed_by: worker_id`
+
+This is a read-then-conditional-update pattern, not a Firestore transaction (due to async client API inconsistencies). Race safety relies on the `on_snapshot` filter (`status == "pending"`) ensuring typically only one worker sees each task. In the rare race, the second worker reads `status: "claimed"` and bails.
+
+### Task Affinity
+
+Three affinity levels control routing:
+
+| Affinity | Behavior |
+|----------|----------|
+| `ANY` | Any capable worker can claim immediately |
+| `PREFERRED` | Only `target_worker` can claim during the fallback window. After `fallback_window_seconds` expires, any worker can claim (reaper promotes the routing). |
+| `EXCLUSIVE` | Only `target_worker` can ever claim. Task waits indefinitely. Reaper logs warnings after 24 hours but never reassigns. |
+
+### Reaper (`reaper.py`)
+
+Runs every 5 minutes with three responsibilities:
+
+1. **Dead worker recovery** -- Finds workers with no heartbeat for 2+ minutes. Releases their claimed/running tasks back to `pending`.
+2. **Preferred fallback promotion** -- Finds pending tasks with `preferred` affinity past their `fallback_window_seconds`. Rewrites routing to `affinity: any` with the `fallback_agent`.
+3. **Exclusive monitoring** -- Logs warnings for `exclusive` tasks waiting 24+ hours. Never reassigns them.
+
+### Worker Registration (`registration.py`)
+
+At startup, each worker:
+
+1. Determines which agents it can run (API key checks + capability matching)
+2. Writes a `WorkerRegistration` doc to `/workers/{node_name}` with hostname, capabilities, supported agents, and version
+3. Starts a heartbeat loop (every 30 seconds)
+
+### Worker Result Formatting
+
+When a sub-agent task completes, `_format_agent_result()` in `loop.py` converts structured outputs into readable markdown:
+
+- `ResearchResult` -- formatted with summary, sources as links, confidence percentage
+- `CodeArtifact` -- code blocks with language syntax highlighting, explanation, optional tests
+- `CommandResult` -- command, exit code, stdout/stderr in code blocks
+- Plain text -- wrapped with agent attribution
+
+The formatted result is written as a `sub_agent` role message in the session.
+
+---
+
+## Compaction Pipeline
+
+The memory compaction system (the "Subconscious") distills raw journal entries into long-term core memories.
+
+### Four Crash-Safe Phases
+
+1. **Read** -- Query unarchived journals (`archived == false`), oldest first, up to `max_journals_per_run`. If fewer than `min_journals_to_trigger`, skip the run.
+
+2. **Group & Summarize** -- Batch journals (default batch_size=10) and send each batch to a PydanticAI summarization agent. The agent receives the journals plus all existing core memories as context (for merging/deduplication). Output: `CompactionResult` with `memories` and `discarded` lists.
+
+3. **Validate & Write** -- For each compacted memory:
+   - If it references an existing memory ID in `related_memory_ids`, update that memory (preserving `previous_content` for rollback)
+   - Otherwise, create a new core memory
+   - Track which journal IDs were consumed
+
+4. **Archive** -- Copy consumed journals to `journals_archive` with `compaction_run` reference. Mark originals as `archived: true`. Journals are NEVER deleted.
+
+### Configuration (`CompactionConfig`)
+
+Stored at `/meta/compaction_config`, editable via web UI:
+
+- `model` -- which model runs summarization (default: `anthropic:claude-sonnet-4-20250514`)
+- `min_journals_to_trigger` -- minimum journals before running (default: 5)
+- `max_journals_per_run` -- cap per execution (default: 100)
+- `batch_size` -- journals per summarization call (default: 10)
+- `require_confidence` -- minimum confidence for memory creation (default: 0.7)
+- `never_compact_categories` -- protected categories: relationship, identity, medical
+- `archive_journals` -- whether to archive consumed journals (default: true)
+- `dry_run` -- preview mode (default: false)
+- `enabled` -- master switch
+
+### Compaction Prompts (`prompts.py`)
+
+The summarization agent follows strict rules:
+- Preserve specifics (names, dates, numbers) -- never abstract them
+- Merge with existing memories via `related_memory_ids` rather than duplicating
+- Never infer beyond the data
+- Importance scoring: 1.0 for identity/relationships, 0.3 for casual mentions
+- Confidence scoring: 1.0 for explicit statements, 0.5 for ambiguous
+- Contradiction handling: create updated memory referencing the old one
+- Every journal must appear in either a memory's `source_journal_ids` or in `discarded`
+
+### Rollback (`rollback.py`)
+
+`rollback_compaction_run(db, run_id)` fully reverts a compaction run:
+1. Memories created by this run -- deleted
+2. Memories updated by this run -- reverted to `previous_content`
+3. Review items from this run -- removed (legacy cleanup)
+4. Archived journals from this run -- restored to active
+5. Run status set to `rolled_back`
+
+Invocable via `glitch compaction rollback <run_id>`.
+
+---
+
+## The Three Trust Zones (Ouroboros)
+
+Ouroboros operates in three distinct trust zones with escalating privilege:
+
+### 1. Engine Zone (Human Only)
+
+The core system code under `glitch_core/`. This is the only zone that CANNOT be modified at runtime. Changes require `git pull` + restart. The engine includes the daemon, agent framework, compaction pipeline, web server, and all core pages.
+
+### 2. System Zone (SafeFileWriter)
+
+Tools (`tools/`) and custom pages (`glitch_core/web/pages_custom/` + `templates_custom/`). These are AI-writable but gated through `SafeFileWriter`, which enforces:
+
+- **Syntax validation** -- `compile()` check
+- **AST scanning** -- blocks dangerous patterns: `os.remove`, `os.system`, `subprocess.run`, `shutil.rmtree`, and all imports of `os`, `subprocess`, `shutil`, `sys`, `ctypes`
+- **Subprocess import test** -- imports the module in an isolated subprocess with a clean environment
+- **Git snapshot before promotion** -- commits the current state for rollback
+- **Atomic promotion** -- writes file(s) to disk
+- **Git commit after promotion** -- commits the new state
+- **Hot-reload attempt** -- if reload fails, automatically `git revert`s
+
+For pages, both the Python route module and Jinja2 template are validated together and promoted atomically -- either both succeed or neither does. Templates are validated with `jinja2.Environment.parse()`.
+
+**Feature flag gated:** Ouroboros tools (`create_tool`, `create_page`) check `deps.ouroboros_enabled` and refuse to run if the flag is off. The flag lives at `/meta/project` under `feature_flags.ouroboros_enabled`.
+
+### 3. Workspace Zone (Free-form)
+
+The `workspace/` directory. The AI writes anything the user asks for here -- scripts, websites, data files. Key properties:
+
+- **No validation** beyond path safety (traversal prevention)
+- **No hot-reload** -- the daemon never imports from workspace
+- **No system impact** -- isolated from the running system
+- **Path safety** -- cannot escape to `glitch_core/`, `tools/`, `.git/`, or `~/.glitch/`
+- **Size limits** -- 50MB per file, 500MB total workspace
+- **Script execution** -- `workspace_run` executes Python scripts with the user's normal environment (including API keys), since these are the user's own scripts
+
+### Circuit Breaker (`RuntimeCircuitBreaker`)
+
+Monitors errors after Ouroboros promotions. If `threshold` errors (default: 3) occur within the `stability_window` (default: 5 minutes) after a promotion, the circuit breaker automatically:
+
+1. Calls `safe_writer.rollback(last_promotion_sha)` to `git revert` the promotion
+2. Clears the error counter and promotion tracking
+3. Logs a CRITICAL-level message
+
+The circuit breaker is wired into the daemon's message handler -- every exception in `_handle_message()` calls `circuit_breaker.record_error(e)`.
+
+---
+
+## Ouroboros Generators
+
+### Tool Generator (`tool_generator.py`)
+
+`generate_tool()` orchestrates:
+1. Build a prompt with filename, description, and constraints (no os/subprocess/shutil/sys/ctypes)
+2. Run the coder agent to generate code
+3. Pass code through `SafeFileWriter.write_tool()` for validation + promotion
+4. If validation fails with fixable errors, feed errors back to the coder and retry (up to 3 attempts)
+5. On success, register the tool in Firestore at `/tools/{tool_id}`
+
+### Page Generator (`page_generator.py`)
+
+`generate_page()` orchestrates:
+1. Build a prompt with full tech stack constraints (FastAPI, Jinja2, HTMX, Tailwind, Firestore, glitch color palette)
+2. The coder generates both files separated by `---TEMPLATE---` marker
+3. Pass both through `SafeFileWriter.write_page()` for atomic validation + promotion
+4. Retry loop with error feedback (up to 3 attempts)
+5. On success, `PageEngine.reload_custom_pages()` makes the page available immediately
+
+### Theme Generator (`theme_generator.py`)
+
+`generate_theme()` orchestrates:
+1. Build a prompt with `GlitchTheme` JSON schema and WCAG contrast requirements
+2. The coder generates a JSON theme object
+3. Parse and validate as `GlitchTheme`
+4. Check WCAG AA contrast ratios on critical color pairs (text/bg, text/surface, muted/bg, muted/surface)
+5. If contrast fails, retry with specific issues listed (up to 2 retries)
+6. Archive current theme to `/theme_history/`, write new theme to `/meta/theme`
+
+---
+
+## Web UI
+
+### Application Assembly (`app.py`)
+
+`create_app()` builds the FastAPI application:
+1. Creates `Jinja2Templates` with multi-directory search (custom templates override core)
+2. Disables Jinja2 template cache (`cache_size=0`) to avoid unhashable globals issue
+3. Creates `PageEngine` and discovers all page modules from `pages/` and `pages_custom/`
+4. Mounts all discovered routers
+5. Adds `ThemeMiddleware` for Firestore-backed theme injection
+6. Stores `db`, `templates`, `page_engine` on `app.state` for route access
+
+### PageEngine (`engine.py`)
+
+Discovers and manages page modules:
+- Scans `pages/` (core) and `pages_custom/` (AI-generated) directories
+- Each module must define a `router = APIRouter(prefix="/...")` and optionally `PAGE_META = PageMeta(...)`
+- `PageMeta` controls navigation: title, icon, section (core/custom), order, visibility
+- `get_nav_items()` returns pages grouped by `nav_section` and sorted by `nav_order`
+- `reload_custom_pages()` clears and re-scans custom pages (used by Ouroboros after page promotion)
+
+### ThemeMiddleware (`middleware.py`)
+
+- Loads the current `GlitchTheme` from `/meta/theme` with a 10-minute in-memory cache
+- Injects `theme` and `nav` into Jinja2 template globals on every request
+- Supports cache busting via `app.state._theme_bust` flag (set by theme apply routes)
+
+### Core Pages
+
+| Page | Route | Description |
+|------|-------|-------------|
+| Dashboard | `/` | System overview |
+| Chat | `/chat` | Multi-agent chat interface with streaming, markdown rendering, thinking animation |
+| Agents | `/agents` | Agent CRUD -- create, edit, delete agents. Edit system prompt (soul), assign tools via checkboxes, configure model/tier/affinity/content rating |
+| Memories | `/memories` | View, search, and manage core memories |
+| Journals | `/journals` | View journal entries, archive status |
+| Soul | `/soul` | View/edit agent system prompts (legacy route, agents page is primary) |
+| Workers | `/workers` | Worker status, capabilities, current tasks |
+| Logs | `/logs` | Run log viewer with full PydanticAI trace inspection |
+| System | `/system` | Project metadata, feature flags, compaction config |
+| Theme | `/theme` | Theme switching (presets), AI theme generation |
+| Review | `/review` | Memory review queue (legacy, no longer actively used) |
+| Workspace | `/workspace` | Browse and manage workspace files |
+
+---
+
+## CLI Commands
+
+Entry point: `glitch = "glitch_core.cli:cli"` (Click group)
+
+### Top-Level Commands
+
+| Command | Description |
+|---------|-------------|
+| `glitch start` | Start the main daemon (agent listener + web server + worker + all background tasks) |
+| `glitch bootstrap` | First-run Firestore initialization -- creates database, seeds agents from YAML, writes default theme/compaction config/project meta, deploys security rules |
+| `glitch nuke` | Delete ALL Firestore data, reset rules to deny-all, require re-bootstrap. Confirmation required. |
+| `glitch status` | Show version, Firebase project, and worker status |
+
+### Compaction Subcommands (`glitch compaction ...`)
+
+| Command | Description |
+|---------|-------------|
+| `glitch compaction run` | Run compaction manually. `--dry-run` (default) for preview, `--force` for live with min_journals=1. |
+| `glitch compaction status` | Show recent compaction run history (default: last 10) |
+| `glitch compaction rollback <run_id>` | Fully revert a compaction run. Confirmation required. |
+
+### Worker Subcommands (`glitch workers ...`)
+
+| Command | Description |
+|---------|-------------|
+| `glitch workers start` | Start a standalone worker daemon (no web UI, no chat listener). Reads agents from Firestore, builds registry, processes sub-tasks. |
+| `glitch workers status` | Show all registered workers with heartbeat age, capabilities, supported agents, current task. |
+
+### Placeholder Subcommands (Not Yet Implemented)
+
+- `glitch update` -- git pull + pip install + migrations + restart
+- `glitch pages list` / `glitch pages rollback`
+
+---
+
+## Configuration Hierarchy
+
+Configuration comes from three sources, in order of precedence:
+
+### 1. Environment (`~/.glitch/.env`)
+
+Machine-local secrets and node identity. Read by `GlitchEnv` (pydantic-settings). All prefixed with `GLITCH_`:
+
+```
+GLITCH_FIREBASE_PROJECT=my-project-id
+GLITCH_FIREBASE_CREDENTIALS=/Users/me/.glitch/credentials.json
+GLITCH_ANTHROPIC_API_KEY=sk-ant-...
+GLITCH_GEMINI_API_KEY=AIza...
+GLITCH_OPENAI_API_KEY=sk-...
+GLITCH_MISTRAL_API_KEY=...
+GLITCH_GROQ_API_KEY=...
+GLITCH_OLLAMA_HOST=http://localhost:11434
+GLITCH_NODE_NAME=main
+GLITCH_NODE_CAPABILITIES=["api"]
+```
+
+### 2. Firestore (Runtime Source of Truth)
+
+- `/agents/{id}` -- all agent configuration (model, system prompt, tools, affinity, content rating)
+- `/meta/project` -- project metadata, default_agent, feature flags
+- `/meta/compaction_config` -- compaction settings
+- `/meta/theme` -- current UI theme
+
+### 3. YAML Seed (`glitch_core.yaml`)
+
+Used ONLY by `glitch bootstrap` to populate Firestore with initial agent configs. After bootstrap, this file is not read by the daemon. The daemon loads agents exclusively from Firestore.
+
+The YAML defines the initial router and worker agents with their models, model tiers, output types, triggers, timeouts, affinities, capabilities, and content ratings.
+
+---
+
+## Security Model
+
+### Firestore Rules
+
+The current security model is **read-only from browser, admin-write from daemon**:
+
+- `/sessions/`, `/sessions/{sid}/messages/`, `/sessions/{sid}/sub_tasks/`, `/sessions/{sid}/run_logs/` -- read: true, write: false
+- `/agents/{agentId}` -- read: true, write: false
+- `/meta/{docId}` -- read: true, write: false
+- Everything else -- read: false, write: false
+
+All writes go through the daemon's Admin SDK, which bypasses security rules entirely. Browser clients get read-only access for real-time `on_snapshot` listeners.
+
+**Firebase Auth is planned but not yet implemented.** Currently, anyone who knows the Firebase project ID can read session data. This is acceptable for single-user self-hosted deployments but needs auth before any multi-user or public-facing deployment.
+
+### Ouroboros Safety
+
+1. **AST scanning** blocks dangerous system calls in AI-generated code
+2. **Subprocess import testing** catches runtime import errors in isolation
+3. **Git snapshots** before every promotion for rollback
+4. **Circuit breaker** auto-reverts promotions that cause runtime errors
+5. **Feature flag** -- Ouroboros is disabled by default, must be explicitly enabled
+
+### Workspace Isolation
+
+- Path traversal blocked (resolved paths must be under workspace root)
+- Forbidden prefixes: `glitch_core`, `tools`, `soul`, `.git`, `.claude`
+- Cannot write to `~/.glitch/`
+- Size limits enforced (50MB/file, 500MB total)
+
+---
+
+## Bootstrap Process
+
+`glitch bootstrap` (in `bootstrap.py`):
+
+1. **Ensure Firestore database exists** -- creates `(default)` database in `nam5` region if missing
+2. **Write `/meta/project`** -- ProjectMeta with version, schema_version, feature flags (ouroboros disabled)
+3. **Seed `/agents/{id}`** -- reads `glitch_core.yaml`, creates one Firestore doc per agent:
+   - Router gets `DEFAULT_SOUL` as system_prompt, all `DEFAULT_ROUTER_TOOLS`
+   - Coder gets workspace tools + create_tool + create_page
+   - Other agents get `write_journal` only
+   - Default system prompts from `DEFAULT_PROMPTS` dict in `agents/__init__.py`
+4. **Write `/meta/compaction_config`** -- default CompactionConfig
+5. **Write `/meta/theme`** -- default preset theme
+6. **Seed empty collections** -- placeholder docs in sessions, journals, journals_archive, core_memories, memories_deleted, compaction_runs, workers, theme_history
+7. **Write `~/.glitch/config.json`** -- CLI config pointer
+8. **Deploy Firestore rules + indexes** -- writes `firestore.rules` and runs `firebase deploy --only firestore`
 
 ---
 
@@ -99,283 +595,130 @@ All Firestore documents map to Pydantic models defined in `glitch_core/schemas.p
 
 | File | Purpose |
 |------|---------|
-| `README.md` | User-facing documentation. Quick start, add-node, update instructions. |
-| `pyproject.toml` | Package definition. Dependencies, optional extras (`[worker]`, `[dev]`), CLI entry point (`glitch = "glitch_core.cli:cli"`). |
-| `.gitignore` | Ignores `pages_custom/`, `templates_custom/`, `tools/`, `.env`, credentials JSON. User-generated content stays local. |
-| `glitch_core.yaml` | Agent configuration. Defines all agents (router + workers), their models, triggers, output schemas, timeouts, affinities, and capability requirements. Read at daemon startup, injected into the router's system prompt. Editable via `glitch edit-agents` or the web UI. |
-| `firestore.rules` | Firestore security rules. Single-owner model — rules exist for structural validation (prevent invalid state transitions on sub_tasks, ensure workers only write their own heartbeat doc), not access control between users. Deployed by the migration runner when a migration declares `MigrationLayer.SECURITY_RULES`. |
-| `install.sh` | Bootstrap script. Guides user through: prerequisites check → Firebase project creation → service account download → API key collection → venv + pip install → Firestore bootstrap → initial config. Writes `~/.glitch/.env` and `~/.glitch/credentials.json`. |
-| `add_node.sh` | Worker node setup. Run on any machine to add it as a worker. Collects: Firebase project ID, service account JSON path, node name, capabilities (api/local/gpu/tailnet). Writes `~/.glitch/.env` on that machine. No registration tokens — the user owns the Firebase project and shares the same service account. |
+| `pyproject.toml` | Package definition. Dependencies: fastapi, uvicorn, jinja2, pydantic, pydantic-settings, pydantic-ai, google-cloud-firestore, google-auth, click, pyyaml, python-multipart, httpx. Optional extras: `[worker]` (ollama, paramiko), `[dev]` (pytest, pytest-asyncio, ruff). CLI entry: `glitch = "glitch_core.cli:cli"`. Python 3.11+. |
+| `glitch_core.yaml` | Seed agent configuration. Defines router + 4 agents (coder, researcher, sysadmin, spicy) with models, tiers, output types, triggers, affinities, capabilities, content ratings. Consumed once by `glitch bootstrap`. |
+| `firestore.rules` | Firestore security rules. Read-only browser access for sessions/messages/agents/meta. All writes via Admin SDK. |
+| `firestore.indexes.json` | Composite indexes: journals (archived + created_at), core_memories (deleted + category, deleted + updated_at), sub_tasks (status + created_at). |
+| `firebase.json` | Firebase CLI config pointing to rules and indexes files. |
+| `ARCHITECTURE.md` | This file. |
+| `todo.md` | Project TODO list with high/medium/low priority items and completed items. |
 
-### Core Package — `glitch_core/`
-
-| File | Purpose |
-|------|---------|
-| `__init__.py` | Package root. Exports `__version__`. |
-| `schemas.py` | **The central type contract.** All Pydantic models that map to Firestore documents and flow between agents/workers/clients. Includes: enums (`TaskStatus`, `TaskCommand`, `ModelTier`, `MessageRole`, `ContentRating`), task lifecycle models (`SubAgentTask`, `TaskError`, `TaskRouting`, `TaskAffinity`), agent output schemas (`CodeArtifact`, `CommandResult`, `ResearchResult`), message models (`ChatMessage`, `Attachment`), memory models (`JournalEntry`, `CoreMemory`), router↔worker protocol (`TaskQueued`, `TaskCompleted`), and config models (`AgentConfig`, `GlitchConfig`). |
-| `config.py` | Configuration loading. `GlitchEnv` (pydantic-settings model reading from `~/.glitch/.env`): Firebase project ID, credentials path, API keys (Gemini, Anthropic, Ollama host), node name, node capabilities. Also loads and validates `glitch_core.yaml` into `GlitchConfig`. API keys stay in `.env` on each machine — never stored in Firestore. |
-| `daemon.py` | **The main process.** Runs on the primary node (typically AWS). Single asyncio event loop running four concurrent tasks: (1) agent listener — subscribes to Firestore for user messages, runs the router agent, (2) worker loop — processes sub_tasks this node can handle, (3) web server — FastAPI/uvicorn on port 8080 accessible via Tailscale, (4) compaction scheduler — runs memory compaction on a cron schedule, (5) reaper loop — reclaims stale tasks from dead workers every 60 seconds. Started via `glitch start`. |
-| `bootstrap.py` | First-run initialization. Called by `install.sh`. Creates initial Firestore collections, writes default agent config, writes default SOUL.md content, seeds empty collections with placeholder docs so they appear in the Firebase console, writes `~/.glitch/config.json` CLI pointer. |
-
-### Workers — `glitch_core/workers/`
-
-The worker subsystem handles distributed task execution across heterogeneous nodes.
+### Core Package -- `glitch_core/`
 
 | File | Purpose |
 |------|---------|
-| `__init__.py` | Exports worker components. |
-| `protocol.py` | **The claim protocol.** Atomic task claiming using Firestore transactions — two workers hitting `try_claim_task()` simultaneously results in exactly one winner. Defines `ClaimResult`, `WorkerCapability` enum (`API`, `LOCAL`, `GPU`, `TAILNET`), `WorkerRegistration` model, and `TaskAffinity` enum (`ANY`, `PREFERRED`, `EXCLUSIVE`). |
-| `loop.py` | **The worker daemon.** `WorkerDaemon` class with: `_register()` — writes worker doc to Firestore, `_heartbeat_loop()` — publishes liveness every 30 seconds, `_task_listener()` — subscribes to pending sub_tasks matching this worker's capabilities, `_can_handle()` — local filter checking affinity, capabilities, and agent support, `_try_and_execute()` — atomic claim then agent execution. Routes tasks to the correct PydanticAI agent from `AGENT_REGISTRY` keyed by `model_tier`. |
-| `reaper.py` | **Stale task recovery.** Runs every 60 seconds in the daemon. Three responsibilities: (1) find claimed/running tasks where the worker stopped heartbeating (>2 min) and release them back to pending, (2) promote `PREFERRED` affinity tasks past their fallback window to `ANY` affinity with the fallback agent, (3) log (never reassign) `EXCLUSIVE` tasks that have been waiting a long time — these are Spicy tasks that wait until the local node comes back. Alerts the user after 24 hours. |
-| `registration.py` | Worker self-registration. Handles the startup flow: read `.env`, connect to Firestore, write `WorkerRegistration` doc, pre-warm local models (Ollama `keep_alive`). |
+| `__init__.py` | Package root. Exports `__version__ = "0.1.0"`. |
+| `schemas.py` | **The central type contract.** All Pydantic models: enums (TaskStatus, TaskCommand, ModelTier, MessageRole, ContentRating, TaskAffinity, WorkerCapability, MemoryCategory, ValidationStage), task models (SubAgentTask, TaskError, TaskRouting, ClaimResult), worker models (WorkerRegistration), agent output schemas (CodeArtifact, ResearchResult, CommandResult), chat models (ChatMessage, Attachment), memory models (JournalEntry, CoreMemory), event protocol (TaskQueued, TaskCompleted), config models (AgentConfig, GlitchConfig, FeatureFlags, ProjectMeta, CompactionConfig), compaction output models (CompactedMemory, DiscardedJournal, CompactionResult, CompactionError, CompactionRun), Ouroboros models (ValidationFailure, PromotionResult, ToolRegistration), workspace models (WorkspaceFile, WorkspaceEntry, WorkspaceTree, ScriptResult). |
+| `config.py` | Configuration loading. `GlitchEnv` (pydantic-settings, reads `~/.glitch/.env`): Firebase credentials, 6 API keys, node name, node capabilities. `load_yaml_config()` parses `glitch_core.yaml` into `GlitchConfig`. `get_default_agent_id(db)` reads from `/meta/project`. `get_firestore_client(env)` creates async Firestore client. `find_firebase_bin()` locates Firebase CLI including nvm paths. |
+| `daemon.py` | **The main process.** `GlitchDaemon` class running 7 concurrent asyncio tasks: agent_listener (on_snapshot message watcher + streaming response), web_server (FastAPI on :8080), self_register, heartbeat (30s), compaction_scheduler (6h interval), worker_loop (WorkerDaemon), reaper (5min interval). Manages: chat agents dict, agent configs cache, memories cache, Ouroboros components (Workspace, SafeFileWriter, RuntimeCircuitBreaker). Uses both async and sync Firestore clients (sync for on_snapshot callbacks). Hot-rebuilds agents via `_rebuild_agent()` called from `_start_agent_watcher()`. |
+| `bootstrap.py` | First-run Firestore initialization. Creates database if needed, seeds agents from YAML with default system prompts and tools, writes project meta and compaction config and theme, seeds empty collections, deploys security rules. Contains `DEFAULT_SOUL` string and `FIRESTORE_RULES` string. |
 
-### Workers — Key Design: The Spicy Worker
-
-The "Spicy" worker runs an uncensored local Ollama model for generating sexually explicit content (legal but against cloud model guidelines). Key constraints:
-
-- **Exclusive affinity only.** Spicy tasks never fall back to cloud models. They sit in the queue indefinitely if the local machine is offline.
-- **`ContentRating` enum** (`SFW` / `NSFW`) on both `SubAgentTask` and `ChatMessage`. Hard-coded routing rule: NSFW content MUST route to Spicy, enforced both in the router's system prompt and programmatically in the spawn tool.
-- **No fallback.** `fallback_agent: null` in config. The reaper never reassigns exclusive NSFW tasks.
-- **When Spicy comes back online** after an outage, the worker daemon reconnects to Firestore, the snapshot listener fires for all pending tasks, and it claims them in order. A `priority: int` field on `SubAgentTask` allows ordering (default 0, time-sensitive tasks set higher).
-
-### Compaction — `glitch_core/compaction/`
-
-The memory compaction pipeline (the "Subconscious"). Decouples memory maintenance from the conversational loop.
+### Agents -- `glitch_core/agents/`
 
 | File | Purpose |
 |------|---------|
-| `__init__.py` | Exports pipeline components. |
-| `pipeline.py` | **The main compaction pipeline.** `run_compaction()` function with four crash-safe phases: (1) Read — grab unprocessed journals oldest-first, load existing core_memories for cross-referencing, (2) Group & Summarize — batch journals and send to a PydanticAI summarization agent (Gemini Flash, cheap/fast) with existing memories as context, (3) Validate & Write — validate each `CompactedMemory` against Pydantic schema, quarantine low-confidence results to `memory_review` queue, write approved memories with version tracking, (4) Archive — copy consumed journals to `journals_archive`, mark originals as archived. Journals are NEVER deleted, only archived. The pipeline is idempotent — if it crashes mid-run, the next run retries safely. Includes `CompactionConfig` model (stored in Firestore at `/meta/compaction_config`, editable via web UI or CLI) with safety controls: `min_journals_to_trigger`, `max_journals_per_run`, `require_confidence` threshold, `never_compact_categories` list (relationship, identity, medical), `dry_run` mode. Also includes `CompactionRun` audit log model written to `/compaction_runs/{run_id}` for every execution. |
-| `prompts.py` | **The summarization agent's system prompt and prompt construction.** The system prompt contains strict rules: preserve specifics (names, dates, numbers), merge don't duplicate, never infer beyond the data, importance scoring (1.0 for identity/relationships, 0.3 for casual mentions), confidence scoring (1.0 for explicit statements, 0.5 for ambiguous), contradiction handling (create updated memory referencing old one, don't silently drop). `_build_compaction_prompt()` constructs the per-batch prompt including existing memories as context so the model can merge/update rather than duplicate. |
-| `rollback.py` | **Compaction run rollback.** `rollback_compaction_run(db, run_id)` — reverts all memories created/updated by a specific run. Updated memories revert to `previous_content`, new memories are deleted, archived journals are restored. Invoked via `glitch compaction rollback <run_id>` or the web UI. |
+| `__init__.py` | Agent factory system. `OUTPUT_TYPE_MAP` maps output_type strings to Pydantic models. `DEFAULT_PROMPTS` dict with seed system prompts for coder/researcher/sysadmin/spicy. `_can_run_model(model, env)` checks API key availability for 6 providers. `create_agent_from_config(cfg)` universal factory -- creates PydanticAI Agent from any AgentConfig with correct output type and dynamic tools. `_attach_dynamic_tools(agent, tool_ids)` loads Python modules from `tools/` directory. `load_agents_from_firestore(db)` reads all `/agents/` docs. `build_agent_registry(agents, env)` builds dict of agent_id to Agent for agents this node can run. |
+| `router.py` | Chat agent creation. `AgentDeps` model (arbitrary_types_allowed) with agent_config, all_agents, core_memories, session_id, db, workspace, safe_writer, ouroboros_enabled. `create_chat_agent(cfg)` creates a PydanticAI Agent[AgentDeps, str] with dynamic system prompt, end_strategy="exhaustive", and attaches builtin tools from BUILTIN_TOOLS registry based on the agent's tools list. |
+| `builtin_tools.py` | **Builtin tool registry.** 9 tools implemented as functions that take an Agent and attach a tool to it. `BUILTIN_TOOLS` dict maps tool_id strings to attach functions. `DEFAULT_ROUTER_TOOLS` list of all 9 tools (used during bootstrap for the router agent). Each tool receives `RunContext` with `AgentDeps` for database/workspace/config access. Key tools: `write_journal` (writes to /journals/), `spawn_sub_agent` (writes SubAgentTask to /sessions/{sid}/sub_tasks/ with content rating enforcement), `create_tool` (SafeFileWriter + Firestore registration, requires ouroboros flag), `create_page` (SafeFileWriter page promotion, requires ouroboros flag). |
 
-### Agents — `glitch_core/agents/`
-
-PydanticAI agent definitions. Each agent is instantiated with its own model — model selection is a constructor argument.
+### Workers -- `glitch_core/workers/`
 
 | File | Purpose |
 |------|---------|
-| `__init__.py` | Exports agent factory functions. |
-| `router.py` | **The chat agent / router.** Uses a cheap fast model (Gemini Flash). Handles conversational back-and-forth, decides when to delegate to sub-agents. System prompt is built dynamically at startup from `glitch_core.yaml` — the router sees a structured menu of available sub-agents with their triggers, models, and timeouts. Includes `spawn_sub_agent` tool that writes `SubAgentTask` docs to Firestore. Hard routing rules: NSFW → Spicy only, code tasks → coder agent, etc. The router's system prompt is rebuilt when the config changes (e.g., Ouroboros adds a new agent), so it instantly knows about new capabilities. Also responsible for passive journal writing — logging observations during conversations to the `journals` collection. |
-| `coder.py` | **The code generation agent.** Uses a heavy reasoning model (Claude Opus). Output schema: `CodeArtifact` (filename, language, code, explanation, tests, sandbox_passed, git_sha). Used for tool generation, page generation, and general coding tasks. |
-| `researcher.py` | **The research agent.** Uses Gemini Flash with web_search tools. Output schema: `ResearchResult` (query, summary, sources with URLs, confidence score). |
-| `sysadmin.py` | **The system administration agent.** Uses Claude Sonnet with `execute_ssh`, `read_file`, `write_file` tools. Output schema: `CommandResult` (command, exit_code, stdout, stderr, host, duration_ms). Requires `tailnet` capability. |
-| `spicy.py` | **The uncensored local model agent.** Uses Ollama with an uncensored model. Exclusive affinity, no fallback. Content rating: NSFW. See Workers section for full design rationale. |
+| `loop.py` | **WorkerDaemon class.** Runs heartbeat + task listener as concurrent tasks. `_task_listener()` uses on_snapshot on sub_tasks (filtered to pending) across all sessions. `_can_handle()` local routing filter checking affinity, target_worker, capabilities, agent support. `_try_and_execute()` claims then executes via agent registry. Writes formatted results as sub_agent messages and run logs. Uses both async and sync Firestore clients. `_format_agent_result()` converts structured outputs (ResearchResult, CodeArtifact, CommandResult) to readable markdown. |
+| `protocol.py` | **Atomic task claiming.** `try_claim_task(db, session_id, task_id, worker_id)` -- read-then-conditional-update. Returns `ClaimResult(claimed=bool, task_id, reason)`. |
+| `reaper.py` | **Stale task recovery.** `reap_stale_tasks(db)` -- finds dead workers (no heartbeat 2+ min), releases their tasks to pending, promotes preferred tasks past fallback window, warns on long-waiting exclusive tasks. |
+| `registration.py` | **Worker self-registration.** `register_worker(db, env, agent_configs)` -- determines supported agents based on API keys and capabilities, writes WorkerRegistration to `/workers/{node_name}`. |
 
-### Agent Dispatch Pattern
-
-The chat agent (Gemini) does NOT call other models directly. It uses a PydanticAI tool (`spawn_sub_agent`) that writes a `SubAgentTask` document to Firestore. Worker daemons on any Tailnet node pick up the task and route it to the correct PydanticAI agent from `AGENT_REGISTRY`. This decouples the router from execution and enables the cost optimization: 95% of turns are Gemini at fractions of a cent, Opus only spins up for code generation or complex reasoning.
-
-Two handoff modes controlled by `blocking: bool` on `SubAgentTask`:
-- **Synchronous** — tool call blocks until sub-agent finishes. Simpler, works for tasks under ~30 seconds.
-- **Async** — tool returns immediately with "task queued," worker writes results to `messages` collection when done. Better UX for long-running tasks. Router must be aware of pending tasks on next user message.
-
-### Ouroboros — `glitch_core/ouroboros/`
-
-The self-improvement system. Safe, recursive code editing via blue/green deployment principles.
+### Compaction -- `glitch_core/compaction/`
 
 | File | Purpose |
 |------|---------|
-| `__init__.py` | Exports Ouroboros components. |
-| `tool_generator.py` | **Tool generation pipeline.** When the main agent needs a new capability, it spawns a coder sub-agent to write a Python tool (e.g., `tools/experimental_data_parser.py`). The tool follows the PydanticAI tool interface. After sandbox validation, the file is committed via Git and the tools module is hot-reloaded via `importlib.reload()`. The agent config is also updated so the router's system prompt knows about the new capability. |
-| `page_generator.py` | **UI page generation pipeline.** When a user requests a custom page, the coder agent generates BOTH a page module (Python FastAPI route) and a template (Jinja2 HTML). Both are validated in a sandbox, then promoted to `pages_custom/` and `templates_custom/`. The `PageEngine` hot-reloads without restart. The user sees a new nav item on next page load. The coder agent receives `CODER_PAGE_PROMPT` with the full tech stack constraints (FastAPI, Jinja2, HTMX, Tailwind, Firestore async, the glitch color palette, available collections). |
-| `sandbox.py` | **Sandbox validation.** The safety layer for all Ouroboros operations. For tools: syntax check (`compile()`), Pydantic schema validation, dry-run in isolated subprocess. For pages: Python syntax check, Jinja2 template parse check, dry-run import, template render with mock data. For both: if sandbox fails, capture traceback and feed back to coder agent for retry. Production deployment should use `nsjail` or `bubblewrap` container with no network and read-only filesystem except tmp. **Critical safety concern:** rollback trigger — if a newly loaded tool/page causes the main agent to error on the next real conversation turn (not the dry-run), automatic rollback: `git revert`, reload, log incident. |
-| `theme_generator.py` | **Theme generation.** Themes are Firestore documents (`GlitchTheme` model), not files. The coder agent generates a `GlitchTheme` JSON object from a natural language prompt ("pink and gothic", "corporate and clean", "match these company colors"). Includes WCAG-lite contrast validation — if the generated theme fails contrast checks, the agent is asked to fix it. Supports logo upload → dominant color extraction → theme generation. Preset themes ship with the repo (default, pink_gothic, corporate). Theme history is preserved in `/theme_history/` collection. |
+| `pipeline.py` | **Main compaction pipeline.** `run_compaction(db, config)` with 4 phases: read (query unarchived journals), summarize (batch + PydanticAI agent), write (create/update core_memories), archive (copy to journals_archive). Writes CompactionRun audit log. Idempotent -- safe to retry on crash. |
+| `prompts.py` | **Summarization prompts.** `COMPACTION_SYSTEM_PROMPT` with strict rules for memory distillation. `build_compaction_prompt()` constructs per-batch prompt with existing memories as context. |
+| `rollback.py` | **Full run reversal.** `rollback_compaction_run(db, run_id)` -- deletes created memories, reverts updated memories, removes review items, restores archived journals, marks run as rolled_back. |
 
-### Ouroboros Safety — Key Concerns
-
-1. **State leakage after `importlib.reload()`.** The module object is replaced, but existing references to old functions in live objects aren't updated. After reload, re-register tools by calling a `rebuild_tools()` method on the agent that re-scans the `tools/` directory.
-2. **Supply-chain attack surface.** The coder agent writes Python that runs on the user's infra. Sandbox validation catches syntax errors and schema mismatches but won't catch destructive operations. Use `nsjail`/`bubblewrap` with no network and read-only filesystem.
-3. **Automatic rollback circuit breaker.** If the newly promoted tool/page causes runtime errors, automatic `git revert` + reload + incident log. Non-technical users can't run `glitch pages rollback` manually.
-4. **Git commit on every promotion.** Every tool and page promotion is committed to Git for rollback safety and audit trail.
-
-### Migrations — `glitch_core/migrations/`
-
-Schema migration system for safe updates across all layers.
+### Ouroboros -- `glitch_core/ouroboros/`
 
 | File | Purpose |
 |------|---------|
-| `__init__.py` | Exports `Migration` base class, `MigrationContext`, `MigrationLayer` enum, `MigrationRecord`. |
-| `runner.py` | **The migration runner.** `MigrationRunner` class that: discovers migration files in `versions/` directory, checks Firestore for already-applied migrations, runs pending migrations in sequential order, records results as `MigrationRecord` docs in `/meta/migrations/history/`. Each migration is idempotent — running twice is a no-op. Failed migrations attempt automatic rollback via `down()`, then halt further processing. Called by `glitch update` after `git pull`. |
-| `versions/__init__.py` | Package marker. |
-| `versions/0001_initial.py` | **Initial migration.** Sets up base Firestore structure — should match what `bootstrap.py` creates. Exists so that future migrations can assume a known starting state. |
+| `__init__.py` | Exports `SafeFileWriter`, `RuntimeCircuitBreaker`, `Workspace`. |
+| `sandbox.py` | **SafeFileWriter** -- the enforcement layer for the System trust zone. `write_tool()` and `write_page()` follow: validate -> git snapshot -> promote -> git commit -> reload. `RuntimeCircuitBreaker` -- monitors post-promotion errors, auto-reverts after threshold. Also contains all validation functions: `_validate_python()` (syntax + AST scan + subprocess import), `_scan_ast()` (walks AST for dangerous patterns), `_validate_template()` (Jinja2 parse check), and git helpers (`_git_snapshot`, `_git_commit`, `_git_revert`). |
+| `workspace.py` | **Workspace** -- free-form user zone at `workspace/`. Path-safe write/read/list/delete/mkdir/run_script. FORBIDDEN_PREFIXES prevent escaping to system dirs. Size limits: 50MB/file, 500MB total. Script execution uses subprocess with user's full environment. |
+| `tool_generator.py` | **Tool generation orchestrator.** `generate_tool()` -- prompt builder -> coder agent -> SafeFileWriter -> retry on fixable errors (3 attempts) -> Firestore registration. |
+| `page_generator.py` | **Page generation orchestrator.** `generate_page()` -- builds prompt with full tech stack constraints -> coder generates Python + HTML separated by `---TEMPLATE---` marker -> SafeFileWriter atomic promotion -> retry loop (3 attempts). `CODER_PAGE_PROMPT` constant with detailed tech stack instructions. |
+| `theme_generator.py` | **Theme generation.** `generate_theme()` -- prompt with GlitchTheme schema -> coder generates JSON -> parse as GlitchTheme -> WCAG contrast validation -> retry on contrast failure (2 attempts) -> save current theme to history -> write new theme. |
 
-### Migration Design
-
-Migrations are numbered, sequential Python files. Each defines a class inheriting from `Migration` with:
-- `up(ctx)` — apply the migration
-- `down(ctx)` — reverse it (must be safe even if `up()` partially ran)
-- `check(ctx)` — optional pre-flight to skip if already applied (idempotency)
-- `layers` — declares which layers are touched (`PYTHON`, `FIRESTORE_SCHEMA`, `CLOUD_FUNCTIONS` [removed], `SECURITY_RULES`, `CONFIG`)
-
-The code lives in the git repo. `git pull` brings new migration files. `glitch update` discovers and runs them. Firestore records which migrations have been applied so the same migration never runs twice.
-
-If a migration touches `SECURITY_RULES`, the runner automatically deploys `firestore.rules` to Firebase.
-
-### CLI — `glitch_core/cli/`
-
-The `glitch` command-line interface. Entry point defined in `pyproject.toml` as `glitch = "glitch_core.cli:cli"`.
+### Web -- `glitch_core/web/`
 
 | File | Purpose |
 |------|---------|
-| `__init__.py` | Click group root. Imports and registers all subcommands. |
-| `main.py` | Core commands: `glitch start` (run daemon), `glitch stop`, `glitch restart`, `glitch status` (show all connected workers and pending tasks), `glitch edit-soul` (open soul in editor), `glitch edit-agents` (open agent config in editor). |
-| `update.py` | **The single update command.** `glitch update`: git pull → pip install -e . → run pending migrations → deploy security rules if changed → restart daemon → check remote worker versions and warn if stale. Options: `--dry-run`, `--skip-pull`, `--skip-functions` [deprecated]. |
-| `workers.py` | Worker management: `glitch worker start` (run worker daemon on this node), `glitch worker-token` [reserved/unused in single-tenant], `glitch worker status`. |
-| `compaction.py` | Compaction management: `glitch compaction run` (manual trigger, defaults to dry-run), `glitch compaction status` (show last N runs), `glitch compaction rollback <run_id>`. |
-| `pages.py` | Custom page management: `glitch pages list`, `glitch pages rollback` (git revert last page promotion). |
+| `app.py` | **FastAPI assembly.** `create_app(db)` -- sets up Jinja2 templates (multi-directory, cache disabled), PageEngine discovery, ThemeMiddleware, stores db/templates/page_engine on app.state. |
+| `engine.py` | **PageEngine.** Discovers page modules from `pages/` and `pages_custom/`. `PageMeta` model (title, icon, nav_section, nav_order, show_in_nav, route_prefix, badge_count). `PageEntry` wraps meta + module info. `discover_pages()` scans and imports modules. `reload_custom_pages()` for Ouroboros hot-reload. |
+| `middleware.py` | **ThemeMiddleware.** Loads GlitchTheme from Firestore with 10-minute cache. Injects theme + nav into Jinja2 globals per request. Supports forced refresh via `_theme_bust` flag. |
+| `theming.py` | Theme models and presets. `GlitchTheme` model, `PRESET_THEMES` dict, `_passes_contrast_check()` for WCAG validation. |
+| `pages/` | 12 core page modules (dashboard, chat, agents, memories, journals, soul, workers, logs, system, theme, review, workspace). Each defines `router` + `PAGE_META`. |
+| `pages_custom/` | AI-generated pages (Ouroboros). Same structure as core pages. |
+| `templates/` | 14 Jinja2 templates (base.html + one per page + agent_edit.html, log_detail.html). All extend base.html, use Tailwind with `glitch-` color palette. |
+| `templates_custom/` | AI-generated templates (Ouroboros). Override or supplement core templates. |
 
-### Web UI — `glitch_core/web/`
-
-Admin interface served by FastAPI alongside the main daemon. Accessible at `http://<tailscale-hostname>:8080`. No build step — Tailwind CDN + HTMX + Jinja2 templates.
-
-| File | Purpose |
-|------|---------|
-| `__init__.py` | FastAPI app factory. Creates the `FastAPI` instance with lifespan handler that shares the Firestore client with the daemon. |
-| `app.py` | App assembly. Mounts all route modules, static files, applies middleware, initializes `PageEngine`. |
-| `middleware.py` | `ThemeMiddleware` — loads the current `GlitchTheme` from Firestore (cached 60 seconds) and injects it into Jinja2 template globals along with the nav registry. Every template gets `theme` and `nav` without individual routes passing them. |
-| `theming.py` | **Theme system.** `GlitchTheme` Pydantic model with: `ThemeColors` (bg, surface, border, accent, text, muted, success, warning, error, category tag colors), typography (font_family, font_cdn for Google Fonts), shape (border_radius, border_width), branding (app_name, app_icon emoji, logo_url, favicon_url), layout (sidebar_width, compact_mode). Preset themes dict (`PRESET_THEMES`). Contrast validation function (`_passes_contrast_check` — WCAG-lite). Color palette extraction from uploaded logos (`_extract_palette` using Pillow). |
-| `engine.py` | **Page discovery and hot-reload engine.** `PageEngine` class that scans `pages/` (core) and `pages_custom/` (AI-generated) directories for Python modules. Each module defines a `router` (APIRouter) and optionally `PAGE_META` (title, icon, nav_section, nav_order). Modules are imported via `importlib.util.spec_from_file_location`. `reload_custom_pages()` removes old custom routes, clears stale modules from `sys.modules`, and re-discovers — called by Ouroboros after promoting a new page. |
-
-### Web UI — Route Modules — `glitch_core/web/pages/`
-
-Each file is a self-contained FastAPI route module that returns `TemplateResponse`. Every module defines a `router` (APIRouter) and `PAGE_META` (for nav registration).
+### CLI -- `glitch_core/cli/`
 
 | File | Purpose |
 |------|---------|
-| `__init__.py` | Package marker. |
-| `dashboard.py` | Landing page. Worker status cards (green/red dots based on heartbeat recency), pending review count badge, last compaction run summary, system health overview. |
-| `memories.py` | **Core memory management.** Card layout (not a table). Each memory shows content, category as colored tag, confidence as a subtle bar. Click to expand → source journals, version history, edit/rollback buttons. Search bar, category filter as pills. HTMX partials for: `memory_detail` (expand card), `update_memory` (form submission → return fresh card), `rollback_memory` (revert to previous_content). Soft-delete moves to `memories_deleted` collection. |
-| `soul.py` | Soul/personality editor. Full-screen text editor with preview. Version history in sidebar drawer via `/soul_history/`. Revert to any version with one click. Every edit snapshots the previous version before overwriting. |
-| `review.py` | **Memory review queue.** Tinder-style: one card at a time. Shows proposed memory + source journal entries for context. Three actions: approve (promote to core_memories with confidence=1.0), edit (promote with modifications), reject (mark reviewed without promoting). Badge count on nav item for pending reviews. |
-| `journals.py` | Journal browser. Searchable timeline view. Filter by topic. Mostly read-only — "what did the AI notice about our conversations." Toggle to include archived journals. Topic list for filter dropdown. |
-| `workers.py` | Worker status page. All registered workers with online/offline status, capabilities, current task, last heartbeat. |
-| `theme.py` | Theme management. Preset selection, custom generation via coder agent, logo upload with palette extraction. Theme picker as HTMX modal. `HX-Refresh: true` after applying a theme to reload the entire page with new colors. |
-| `system.py` | System administration. Compaction history (last N runs with stats), manual compaction trigger (defaults to dry-run), compaction rollback, feature flag toggles. |
-
-### Web UI — Templates — `glitch_core/web/templates/`
-
-Jinja2 templates. All extend `base.html`. Use HTMX for interactivity. Tailwind classes use the `glitch-*` color palette which is dynamically configured from the `GlitchTheme` Firestore document.
-
-| File | Purpose |
-|------|---------|
-| `base.html` | **Layout shell.** Imports: Tailwind CDN (configured with `glitch` color palette from theme), HTMX, optional Google Font from `theme.font_cdn`. Sidebar nav built dynamically from registered pages (grouped by `nav_section`: core, system, custom). Theme picker button at bottom of sidebar. Main content area with `{% block content %}`. Modal container div. HTMX swap animations (opacity transition). The `tailwind.config` object is built dynamically from `theme.colors` passed as a Jinja2 template variable. |
-| `dashboard.html` | Dashboard layout. |
-| `memories.html` | Memory browser with search, filters, card grid. |
-| `soul.html` | Soul editor layout. |
-| `review.html` | Review queue layout. |
-| `journals.html` | Journal timeline layout. |
-| `workers.html` | Worker status grid. |
-| `theme.html` | Theme management layout. |
-| `system.html` | System admin layout. |
-
-### Web UI — Template Components — `glitch_core/web/templates/components/`
-
-Reusable HTMX partials. These return HTML fragments that HTMX swaps in — they are NOT full pages.
-
-| File | Purpose |
-|------|---------|
-| `memory_card.html` | Single memory card. Shows: category tag (color-coded), content, version number, confidence bar, edit button (triggers `hx-get` to `memory_detail`), undo button (if `previous_content` exists, triggers `hx-post` to rollback with `hx-confirm`). |
-| `memory_detail.html` | Expanded memory view with edit form, source journals, version history. Returned by HTMX when clicking "Edit" on a memory card. |
-| `worker_badge.html` | Worker status badge showing online/offline, capabilities, current task. |
-| `stat_block.html` | Reusable statistic display (number + label + optional trend). |
-| `confirm_modal.html` | Generic confirmation modal for destructive actions. |
-| `theme_picker.html` | Theme selection modal. Preset swatches + custom generation form + logo upload. |
-| `review_card.html` | Single review queue item. Proposed memory + source journals + approve/edit/reject buttons. |
-| `journal_entry.html` | Single journal entry in the timeline view. |
-| `nav.html` | Navigation sidebar partial (if separated from base.html). |
-
-### Custom Directories (gitignored, user/AI-generated)
-
-| Directory | Purpose |
-|-----------|---------|
-| `glitch_core/web/pages_custom/` | AI-generated page modules. Same contract as core pages (router + PAGE_META). Hot-reloaded by `PageEngine`. Git-committed by Ouroboros for rollback safety but gitignored from upstream. |
-| `glitch_core/web/templates_custom/` | AI-generated Jinja2 templates. Loaded alongside core templates by Jinja2's multi-directory search. |
-| `tools/` | AI-generated and user-created PydanticAI tools. Hot-reloaded via `importlib`. Each tool is a Python module that follows the PydanticAI tool interface. |
-| `soul/SOUL.md` | The AI's personality file. Injected into the router's system prompt on every initialization. Editable via web UI or `glitch edit-soul`. |
-
-### Tests — `tests/`
-
-| File | Purpose |
-|------|---------|
-| `test_schemas.py` | Validate all Pydantic models serialize/deserialize correctly. Test enum coverage. Test `model_json_schema()` output for cross-process schema shipping. |
-| `test_compaction.py` | Test compaction pipeline phases independently. Test idempotency (run twice → same result). Test rollback. Test low-confidence quarantine. Test crash recovery (simulate failure between phases). |
-| `test_workers.py` | Test claim protocol (concurrent claims → exactly one winner). Test affinity routing (exclusive, preferred with fallback, any). Test reaper behavior (stale task release, preferred→fallback promotion). |
-| `test_migrations.py` | Test migration discovery and ordering. Test idempotency (apply twice → no-op). Test rollback on failure. Test `check()` skip logic. |
-| `test_theming.py` | Test contrast validation. Test theme serialization to Tailwind config. Test preset themes all pass contrast checks. Test color palette extraction. |
-
----
-
-## Update & Migration Flow
-
-The user's mental model: **`glitch update` does everything.**
-
-```
-glitch update
-  ├── git pull --ff-only
-  ├── pip install -e .                    (pick up new dependencies)
-  ├── Run pending migrations              (sequential, idempotent)
-  │   ├── Firestore schema changes        (backfill fields, restructure docs)
-  │   ├── Config document updates         (new defaults, new fields)
-  │   └── Security rules deployment       (auto-deploy firestore.rules if changed)
-  ├── Restart daemon                      (pick up code changes)
-  └── Check remote worker versions        (warn if stale)
-```
-
-Remote workers need to be updated separately — `glitch update` on the main node will warn about stale workers but can't force-update them. Each worker reports its `glitch_version` in its heartbeat document.
-
-There is no published pip package. `pip install -e .` is a local editable install that symlinks the git repo into the venv. The "package" IS the cloned repo. Users own it, can edit it, and `git pull` updates it.
-
----
-
-## Security Model
-
-- **Tailscale provides the network boundary.** The web UI and daemon are only accessible to devices on the user's Tailnet. No public exposure, no SSL complexity, no auth layer needed.
-- **Firebase service account JSON provides authentication.** Same key used on all the user's machines. Stored at `~/.glitch/credentials.json` with 0600 permissions.
-- **API keys stay local.** Each machine reads its own `~/.glitch/.env`. Keys never transit through Firestore. Compromising Firestore exposes conversation history and memories, not API credentials.
-- **Firestore rules are structural, not authorization.** All nodes are trusted (they're all the user's). Rules prevent invalid state transitions and enforce that workers only write their own heartbeat doc.
-- **Ouroboros sandbox isolation.** AI-generated code runs in isolated subprocesses. Production deployments should use nsjail/bubblewrap. Automatic rollback on runtime errors.
-- **Content isolation.** `ContentRating` enum on tasks and messages. Firestore security rules can filter by content_rating if Flutter clients gain multi-user support in the future.
-
----
-
-## Configuration Hierarchy
-
-```
-~/.glitch/.env                   — Machine-local secrets (API keys, Firebase creds, node identity)
-                                   NEVER in Firestore. NEVER in git.
-
-glitch_core.yaml                 — Agent definitions (models, triggers, schemas, timeouts)
-                                   In git. Editable via `glitch edit-agents` or web UI.
-                                   Changes picked up on daemon restart.
-
-Firestore /meta/theme            — UI theme. Editable via web UI or AI generation.
-                                   Changes take effect on next page load (60s cache).
-
-Firestore /meta/compaction_config — Compaction pipeline settings.
-                                   Editable via web UI or `glitch edit-compaction`.
-                                   Read fresh on every compaction run.
-
-Firestore /meta/project          — Version marker, feature flags.
-                                   Updated by migration runner.
-
-Firestore /soul/default          — AI personality. Editable via web UI.
-                                   Read on every agent initialization.
-```
+| `__init__.py` | Click group assembly. Registers all commands and subcommand groups (compaction, workers, update, pages). |
+| `main.py` | Top-level commands: `start_cmd` (run daemon), `bootstrap_cmd` (init Firestore), `nuke_cmd` (delete all data + reset rules), `status_cmd` (show version + workers). |
+| `compaction.py` | Compaction subcommands: `run` (manual execution with dry-run/force), `status` (recent history), `rollback` (full run reversal with confirmation). |
+| `workers.py` | Worker subcommands: `start` (standalone worker daemon), `status` (all workers with heartbeat, capabilities, tasks). |
 
 ---
 
 ## Key Architectural Invariants
 
-These are constraints that should hold true across all future development:
+1. **Firestore is the single source of truth for agent configuration.** YAML is seed data only. After bootstrap, agents live in Firestore and are edited via the web UI. The daemon watches `/agents/` and hot-rebuilds on change.
 
-1. **No build step.** The web UI must remain functional with only CDN imports. If it requires `npm build`, the Ouroboros page generation system breaks.
-2. **No Cloud Functions.** All compute runs in the daemon or worker loops. Firebase is storage only.
-3. **No published package.** The codebase is the repo. `pip install -e .` is a local symlink, not a registry fetch.
-4. **No multi-tenant.** One Firebase project per user. No tenant scoping in Firestore queries. No shared infrastructure.
-5. **Journals are never deleted.** Compaction archives journals, never destroys them. The `journals_archive` collection is the permanent record.
-6. **Core memories have rollback.** Every update preserves `previous_content`. Every compaction run is logged and reversible.
-7. **Custom content survives updates.** `pages_custom/`, `templates_custom/`, and `tools/` are gitignored from upstream. `glitch update` never touches them.
-8. **All Firestore documents map to Pydantic models.** No raw dict manipulation. Schema validation is the contract between all components.
-9. **The router's system prompt is built from config, not hardcoded.** Adding a new agent to `glitch_core.yaml` automatically makes the router aware of it.
-10. **API keys never touch Firestore.** Local `.env` only. Each machine only needs keys for models it runs.
+2. **Every agent is equal.** There is no `is_router` flag. The "router" is the default agent with dispatch tools checked. Any agent can have any tool. Any agent can be the default.
+
+3. **Sessions have agent affinity.** Each session belongs to one agent (via `agent_id` field). Users chat directly with any agent. The router is not a mandatory intermediary.
+
+4. **Content rating is config-driven.** NSFW routing is determined by the `content_rating` field on agents, not by hardcoded agent names. SFW agents cannot dispatch to NSFW agents.
+
+5. **Memories go straight to core_memories.** There is no review queue in the active pipeline. The compaction confidence threshold controls what gets created.
+
+6. **Journals are never deleted.** They are archived after compaction. The original stays with `archived: true`, a copy goes to `journals_archive`. Rollback restores both.
+
+7. **on_snapshot, not polling.** All reactive behavior uses Firestore real-time listeners. Idle cost is near zero (no read quotas burned while waiting).
+
+8. **Streaming via document updates.** Agent responses stream via periodic updates to a Firestore message doc (600ms batches), not via WebSocket or SSE. The client's `on_snapshot` listener provides the real-time effect.
+
+9. **The daemon owns all writes.** Browser clients are read-only. The daemon's Admin SDK bypasses security rules. All mutations go through the daemon.
+
+10. **Ouroboros is feature-flagged.** The `create_tool` and `create_page` tools check `ouroboros_enabled` before executing. Disabled by default.
+
+11. **Git is the rollback mechanism for Ouroboros.** Every tool/page promotion is committed. The circuit breaker and manual rollback both use `git revert`.
+
+12. **Workers are self-describing.** Each worker writes its capabilities, supported agents, and version to Firestore at startup. The reaper uses heartbeat timestamps to detect dead workers.
+
+---
+
+## NOT IMPLEMENTED
+
+Features that are designed or referenced in code but not yet functional:
+
+| Feature | Status | Description |
+|---------|--------|-------------|
+| **Firebase Auth** | Planned | Browser Firestore access is currently read-only with no authentication. Needs auth before any multi-user or public deployment. Security rules currently allow unauthenticated reads on sessions/agents/meta. |
+| **`glitch update`** | Placeholder | CLI group exists but no subcommands. Intended: `git pull` + `pip install` + schema migrations + daemon restart. |
+| **Migration runner** | Not started | No `migrations/` directory or runner. Schema changes require manual Firestore updates or nuke + re-bootstrap. |
+| **Proper cron scheduling** | Not implemented | Compaction scheduler uses a fixed 6-hour `asyncio.sleep()` interval, not actual cron parsing of `CompactionConfig.schedule_cron`. |
+| **`glitch stop` / `glitch restart`** | Not started | Daemon runs in foreground. No systemd/launchd service integration yet. |
+| **SSH execution (sysadmin)** | Stub only | The sysadmin agent's `execute_ssh` tool returns a placeholder string. Paramiko is in optional deps but not wired up. |
+| **`glitch pages list` / `rollback`** | Placeholder | CLI group exists, no subcommands implemented. |
+| **Bootstrap memory quiz** | Not started | Bootstrap should ask user for name, preferences, etc. during first run to seed initial memories. |
+| **Logfire integration** | Not started | PydanticAI observability via Logfire. |
+| **Docker workspace execution** | Not started | Workspace scripts run via bare `subprocess`. Production hardening would use containers. |
+| **nsjail/bubblewrap sandbox** | Not started | Ouroboros subprocess validation uses basic isolated subprocess, not a proper sandbox. |
+| **Logo color extraction** | Not started | Pillow-based color palette extraction for theme generation from uploaded logos. |
+| **OpenAI-compatible base URL** | Not started | No LM Studio / vLLM support via custom base URL. |
+| **Agent config versioning** | Not started | No history tracking for agent config changes in Firestore. |
+| **Firestore structural validation** | Not started | Security rules don't enforce valid status transitions or field-level write restrictions. |

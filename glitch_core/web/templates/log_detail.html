@@ -5,6 +5,9 @@
 {% block content %}
 {# Macro for rendering a single trace message #}
 {% macro _render_trace_message(msg) %}
+{# Consolidate consecutive text parts into one block #}
+{% set ns = namespace(text_buffer='', parts_rendered=[]) %}
+{% set all_parts = msg.get('parts', []) %}
 <div class="bg-glitch-surface border border-glitch-border rounded-glitch overflow-hidden">
     <div class="px-4 py-2 border-b border-glitch-border flex items-center justify-between
         {% if msg.get('kind') == 'request' %}bg-blue-500/10{% elif msg.get('kind') == 'response' %}bg-green-500/10{% else %}bg-glitch-surface{% endif %}">
@@ -19,31 +22,59 @@
         {% endif %}
     </div>
     <div class="p-4 space-y-2">
-        {% for part in msg.get('parts', []) %}
+        {% for part in all_parts %}
+        {% set part_kind = part.get('part_kind', 'unknown') %}
+
+        {% if part_kind == 'system-prompt' %}
         <div class="text-sm">
-            {% set part_kind = part.get('part_kind', 'unknown') %}
-            {% if part_kind == 'system-prompt' %}
             <details>
                 <summary class="text-xs font-semibold text-purple-400 cursor-pointer">SYSTEM PROMPT ({{ part.get('content', '') | length }} chars)</summary>
                 <pre class="text-xs text-glitch-muted bg-glitch-bg rounded-glitch p-3 mt-1 overflow-x-auto max-h-60 overflow-y-auto whitespace-pre-wrap">{{ part.get('content', '') }}</pre>
             </details>
-            {% elif part_kind == 'user-prompt' %}
+        </div>
+
+        {% elif part_kind == 'user-prompt' %}
+        <div class="text-sm">
             <div class="text-xs font-semibold text-blue-400 mb-1">USER</div>
             <p class="text-glitch-text">{{ part.get('content', '') }}</p>
-            {% elif part_kind == 'text' %}
-            <div class="text-xs font-semibold text-green-400 mb-1">ASSISTANT</div>
-            <p class="text-glitch-text">{{ part.get('content', '') }}</p>
-            {% elif part_kind == 'tool-call' %}
-            <div class="text-xs font-semibold text-yellow-400 mb-1">TOOL CALL: {{ part.get('tool_name', '?') }}</div>
-            <pre class="text-xs text-glitch-muted bg-glitch-bg rounded-glitch p-3 overflow-x-auto whitespace-pre-wrap">{{ part.get('args', '') | tojson(indent=2) if part.get('args') is mapping else part.get('args', '') }}</pre>
-            {% elif part_kind == 'tool-return' %}
-            <div class="text-xs font-semibold text-cyan-400 mb-1">TOOL RETURN: {{ part.get('tool_name', '?') }}</div>
-            <pre class="text-xs text-glitch-muted bg-glitch-bg rounded-glitch p-3 overflow-x-auto whitespace-pre-wrap">{{ part.get('content', '') }}</pre>
-            {% else %}
-            <div class="text-xs font-semibold text-glitch-muted mb-1">{{ part_kind | upper }}</div>
-            <pre class="text-xs text-glitch-muted bg-glitch-bg rounded-glitch p-3 overflow-x-auto whitespace-pre-wrap">{{ part | tojson(indent=2) }}</pre>
-            {% endif %}
         </div>
+
+        {% elif part_kind == 'text' %}
+        {# Accumulate text — only render when the next part is NOT text, or it's the last part #}
+        {% set ns.text_buffer = ns.text_buffer + part.get('content', '') %}
+        {% if loop.last or all_parts[loop.index0 + 1].get('part_kind', '') != 'text' %}
+        <div class="text-sm">
+            <div class="text-xs font-semibold text-green-400 mb-1">ASSISTANT</div>
+            <p class="text-glitch-text">{{ ns.text_buffer }}</p>
+        </div>
+        {% set ns.text_buffer = '' %}
+        {% endif %}
+
+        {% elif part_kind == 'tool-call' %}
+        <div class="text-sm">
+            <details>
+                <summary class="text-xs font-semibold text-yellow-400 cursor-pointer">TOOL CALL: {{ part.get('tool_name', '?') }}</summary>
+                <pre class="text-xs text-glitch-muted bg-glitch-bg rounded-glitch p-3 mt-1 overflow-x-auto whitespace-pre-wrap">{{ part.get('args', '') | tojson(indent=2) if part.get('args') is mapping else part.get('args', '') }}</pre>
+            </details>
+        </div>
+
+        {% elif part_kind in ('tool-return', 'builtin-tool-return') %}
+        <div class="text-sm">
+            <details>
+                <summary class="text-xs font-semibold text-cyan-400 cursor-pointer">{{ part_kind | upper }}: {{ part.get('tool_name', '?') }}</summary>
+                <pre class="text-xs text-glitch-muted bg-glitch-bg rounded-glitch p-3 mt-1 overflow-x-auto max-h-40 overflow-y-auto whitespace-pre-wrap">{{ part.get('content', '') }}</pre>
+            </details>
+        </div>
+
+        {% else %}
+        <div class="text-sm">
+            <details>
+                <summary class="text-xs font-semibold text-glitch-muted cursor-pointer">{{ part_kind | upper }}</summary>
+                <pre class="text-xs text-glitch-muted bg-glitch-bg rounded-glitch p-3 mt-1 overflow-x-auto whitespace-pre-wrap">{{ part | tojson(indent=2) }}</pre>
+            </details>
+        </div>
+        {% endif %}
+
         {% endfor %}
     </div>
 </div>

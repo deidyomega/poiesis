@@ -32,6 +32,9 @@ class GlitchEnv(BaseSettings):
     firebase_credentials: Path = GLITCH_HOME / "credentials.json"
     gemini_api_key: str | None = None
     anthropic_api_key: str | None = None
+    openai_api_key: str | None = None
+    mistral_api_key: str | None = None
+    groq_api_key: str | None = None
     ollama_host: str | None = None
     node_name: str = "main"
     node_capabilities: list[str] = Field(default_factory=lambda: ["api"])

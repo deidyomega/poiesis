@@ -23,8 +23,14 @@ def start_cmd() -> None:
         os.environ["ANTHROPIC_API_KEY"] = env.anthropic_api_key
     if env.gemini_api_key and "GEMINI_API_KEY" not in os.environ:
         os.environ["GEMINI_API_KEY"] = env.gemini_api_key
+    if env.openai_api_key and "OPENAI_API_KEY" not in os.environ:
+        os.environ["OPENAI_API_KEY"] = env.openai_api_key
+    if env.mistral_api_key and "MISTRAL_API_KEY" not in os.environ:
+        os.environ["MISTRAL_API_KEY"] = env.mistral_api_key
+    if env.groq_api_key and "GROQ_API_KEY" not in os.environ:
+        os.environ["GROQ_API_KEY"] = env.groq_api_key
     if env.ollama_host and "OLLAMA_BASE_URL" not in os.environ:
-        os.environ["OLLAMA_BASE_URL"] = env.ollama_host
+        os.environ["OLLAMA_BASE_URL"] = f"{env.ollama_host.rstrip('/')}/v1"
 
     from glitch_core.daemon import run_daemon
 

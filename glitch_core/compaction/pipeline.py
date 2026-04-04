@@ -7,12 +7,18 @@ from typing import Any
 
 from pydantic_ai import Agent
 
-from glitch_core.compaction.prompts import COMPACTION_SYSTEM_PROMPT, build_compaction_prompt
+from glitch_core.compaction.prompts import (
+    COMPACTION_SYSTEM_PROMPT,
+    MERGE_SYSTEM_PROMPT,
+    build_compaction_prompt,
+    build_merge_prompt,
+)
 from glitch_core.schemas import (
     CompactedMemory,
     CompactionConfig,
     CompactionError,
     CompactionResult,
+    MergeResult,
     CompactionRun,
 )
 
@@ -83,6 +89,11 @@ async def run_compaction(db: Any, config: CompactionConfig | None = None) -> Com
         # ── Phase 4: Archive ───────────────────────────────────────────
         if config.archive_journals:
             await _phase_archive(db, run, journals, consumed_journal_ids)
+
+        # ── Phase 5: Merge ────────────────────────────────────────────
+        # After writing new memories, check if any should be combined
+        # with existing memories into richer entries
+        await _phase_merge(db, config, run)
 
         run.status = "completed"
         run.completed_at = datetime.utcnow()
@@ -372,6 +383,98 @@ async def _phase_archive(
 
     run.journals_archived = archived_count
     logger.info("Phase 4 — Archive: %d journals archived", archived_count)
+
+
+# ── Phase 5: Merge ─────────────────────────────────────────────────────────
+
+async def _phase_merge(
+    db: Any,
+    config: CompactionConfig,
+    run: CompactionRun,
+) -> None:
+    """Post-compaction pass: merge related memories into richer entries."""
+    from google.cloud.firestore_v1.base_query import FieldFilter
+
+    # Load all active memories
+    memories: dict[str, dict[str, Any]] = {}
+    query = db.collection("core_memories").where(
+        filter=FieldFilter("deleted", "==", False)
+    ).limit(500)
+    async for doc in query.stream():
+        if doc.id == "_placeholder":
+            continue
+        memories[doc.id] = doc.to_dict()
+
+    # Only merge if we have enough memories to be worth it
+    if len(memories) < 3:
+        logger.info("Phase 5 — Merge: skipped (only %d memories)", len(memories))
+        return
+
+    try:
+        agent = Agent(
+            config.model,
+            output_type=MergeResult,
+            system_prompt=MERGE_SYSTEM_PROMPT,
+            defer_model_check=True,
+        )
+
+        prompt = build_merge_prompt(memories)
+        result = await agent.run(prompt)
+        merge_result: MergeResult = result.output
+
+        if not merge_result.merge_groups:
+            logger.info("Phase 5 — Merge: no merges needed")
+            return
+
+        merged_count = 0
+        for group in merge_result.merge_groups:
+            if len(group.memory_ids) < 2:
+                continue
+
+            # Verify all memory IDs exist
+            valid_ids = [mid for mid in group.memory_ids if mid in memories]
+            if len(valid_ids) < 2:
+                continue
+
+            # Keep the first memory ID as the survivor, delete the rest
+            survivor_id = valid_ids[0]
+            old_content = memories[survivor_id].get("content", "")
+
+            # Update the survivor with merged content
+            await db.collection("core_memories").document(survivor_id).update({
+                "previous_content": old_content,
+                "content": group.merged_content,
+                "category": group.category,
+                "importance": group.importance,
+                "confidence": group.confidence,
+                "version": memories[survivor_id].get("version", 1) + 1,
+                "compaction_run": run.run_id,
+                "updated_at": datetime.utcnow(),
+            })
+
+            # Soft-delete the other memories in the group
+            for mid in valid_ids[1:]:
+                await db.collection("core_memories").document(mid).update({
+                    "deleted": True,
+                    "merged_into": survivor_id,
+                    "updated_at": datetime.utcnow(),
+                })
+
+            merged_count += 1
+            logger.info(
+                "Merged %d memories into %s: %s",
+                len(valid_ids), survivor_id, group.merged_content[:80],
+            )
+
+        logger.info("Phase 5 — Merge: %d groups merged", merged_count)
+
+    except Exception as e:
+        logger.exception("Memory merge pass failed (non-fatal)")
+        run.errors.append(CompactionError(
+            stage="merge",
+            message=str(e),
+            recoverable=True,
+        ))
 
 
 # ── Audit Log ──────────────────────────────────────────────────────────────

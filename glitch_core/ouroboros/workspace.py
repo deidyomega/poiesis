@@ -176,9 +176,11 @@ class Workspace:
         script_path: str,
         args: list[str] | None = None,
         timeout: int = 300,
+        interpreter: str | None = None,
     ) -> ScriptResult:
-        """Execute a Python script from the workspace in the workspace.
+        """Execute a script from the workspace in the workspace.
 
+        The interpreter is auto-detected from file extension if not specified.
         The script gets the user's normal environment (including API keys),
         since these are the user's own scripts — not Ouroboros system code.
         """
@@ -191,7 +193,21 @@ class Workspace:
                 timed_out=False,
             )
 
-        cmd = ["python", str(resolved)]
+        # Auto-detect interpreter from extension
+        if interpreter is None:
+            ext = resolved.suffix.lower()
+            interpreter_map = {
+                ".py": "python3",
+                ".js": "node",
+                ".ts": "npx ts-node",
+                ".sh": "bash",
+                ".rb": "ruby",
+                ".pl": "perl",
+                ".php": "php",
+            }
+            interpreter = interpreter_map.get(ext, "python3")
+
+        cmd = interpreter.split() + [str(resolved)]
         if args:
             cmd.extend(args)
 

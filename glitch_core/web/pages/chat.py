@@ -145,3 +145,53 @@ async def send_message(
         )
 
     return HTMLResponse(content="", status_code=204)
+
+
+@router.post("/clear-session")
+async def clear_session(request: Request, session_id: str = Form(...)) -> RedirectResponse:
+    """Clear all messages from a session but keep the session alive."""
+    db = request.app.state.db
+
+    if db is not None:
+        session_ref = db.collection("sessions").document(session_id)
+
+        for sub in ["messages", "run_logs"]:
+            batch = db.batch()
+            count = 0
+            async for doc in session_ref.collection(sub).stream():
+                batch.delete(session_ref.collection(sub).document(doc.id))
+                count += 1
+                if count % 500 == 0:
+                    await batch.commit()
+                    batch = db.batch()
+            if count % 500 != 0:
+                await batch.commit()
+
+    return RedirectResponse(url=f"/chat?session={session_id}", status_code=303)
+
+
+@router.post("/delete-session")
+async def delete_session(request: Request, session_id: str = Form(...)) -> RedirectResponse:
+    """Delete a session and all its subcollections."""
+    db = request.app.state.db
+
+    if db is not None and session_id != "default":
+        session_ref = db.collection("sessions").document(session_id)
+
+        # Batch delete subcollections
+        for sub in ["messages", "sub_tasks", "run_logs"]:
+            batch = db.batch()
+            count = 0
+            async for doc in session_ref.collection(sub).stream():
+                batch.delete(session_ref.collection(sub).document(doc.id))
+                count += 1
+                if count % 500 == 0:
+                    await batch.commit()
+                    batch = db.batch()
+            if count % 500 != 0:
+                await batch.commit()
+
+        # Delete session doc
+        await session_ref.delete()
+
+    return RedirectResponse(url="/chat", status_code=303)

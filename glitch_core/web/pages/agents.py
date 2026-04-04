@@ -56,30 +56,56 @@ async def edit_agent(request: Request, agent_id: str) -> HTMLResponse:
     agent = doc.to_dict()
     agent["agent_id"] = agent_id
 
+    # Build tool groups + dynamic tools
+    from glitch_core.agents.builtin_tools import TOOL_GROUPS, tools_to_groups
+
+    agent_tools = agent.get("tools", [])
+    active_groups = tools_to_groups(agent_tools)
+
+    # Dynamic tools from Firestore /tools/
+    dynamic_tools = []
+    if db is not None:
+        async for tdoc in db.collection("tools").limit(100).stream():
+            if tdoc.id == "_placeholder":
+                continue
+            tdata = tdoc.to_dict()
+            tdata["tool_id"] = tdoc.id
+            dynamic_tools.append(tdata)
+
     return templates.TemplateResponse(request, "agent_edit.html", context={
         "agent": agent,
         "output_types": list(OUTPUT_TYPE_MAP.keys()),
+        "tool_groups": TOOL_GROUPS,
+        "active_groups": active_groups,
+        "dynamic_tools": dynamic_tools,
+        "agent_tools": agent_tools,
     })
 
 
 @router.post("/{agent_id}/save")
-async def save_agent(
-    request: Request,
-    agent_id: str,
-    name: str = Form(...),
-    description: str = Form(""),
-    model: str = Form(...),
-    system_prompt: str = Form(""),
-    output_type: str = Form("text"),
-    triggers: str = Form(""),
-    affinity: str = Form("any"),
-    required_capabilities: str = Form(""),
-    content_rating: str = Form("sfw"),
-    timeout_seconds: int = Form(120),
-    enabled: str = Form("off"),
-) -> RedirectResponse:
+async def save_agent(request: Request, agent_id: str) -> RedirectResponse:
     """Save agent configuration changes."""
     db = request.app.state.db
+    form = await request.form()
+
+    name = form.get("name", "")
+    description = form.get("description", "")
+    model = form.get("model", "")
+    system_prompt = form.get("system_prompt", "")
+    output_type = form.get("output_type", "text")
+    triggers = form.get("triggers", "")
+    affinity = form.get("affinity", "any")
+    required_capabilities = form.get("required_capabilities", "")
+    content_rating = form.get("content_rating", "sfw")
+    timeout_seconds = int(form.get("timeout_seconds", "120"))
+    enabled = form.get("enabled", "off")
+
+    # Collect tool groups + dynamic tools, expand to individual tool IDs
+    from glitch_core.agents.builtin_tools import groups_to_tools
+
+    selected_groups = form.getlist("tool_groups")
+    selected_dynamic = form.getlist("dynamic_tools")
+    tool_ids = groups_to_tools(selected_groups) + list(selected_dynamic)
 
     trigger_list = [t.strip() for t in triggers.split(",") if t.strip()]
     cap_list = [c.strip() for c in required_capabilities.split(",") if c.strip()]
@@ -91,6 +117,7 @@ async def save_agent(
         "system_prompt": system_prompt,
         "output_type": output_type,
         "triggers": trigger_list,
+        "tools": list(tool_ids),
         "affinity": affinity,
         "required_capabilities": cap_list,
         "content_rating": content_rating,

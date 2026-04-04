@@ -195,6 +195,13 @@ class Attachment(BaseModel):
     size_bytes: int | None = None
 
 
+class MessageNotification(BaseModel):
+    """Notification metadata on a message — tells clients to alert the user."""
+    type: str = "reminder"  # "reminder", "alert", "task_complete", etc.
+    sound: bool = True
+    title: str = ""
+
+
 class ChatMessage(BaseModel):
     """A single message in a chat session."""
     message_id: str
@@ -202,18 +209,31 @@ class ChatMessage(BaseModel):
     role: MessageRole
     content: str
     content_rating: ContentRating = ContentRating.SFW
+    notification: MessageNotification | None = None
     attachments: list[Attachment] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class Reminder(BaseModel):
+    """A scheduled reminder stored in Firestore at /reminders/{id}."""
+    reminder_id: str
+    session_id: str
+    agent_id: str = ""
+    message: str  # pre-composed message text
+    fire_at: datetime
+    fired: bool = False
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 # ── Memory Models ──────────────────────────────────────────────────────────
 
 class JournalEntry(BaseModel):
-    """A mid-term observation logged by the router during conversation."""
+    """A mid-term observation logged during conversation, with surrounding context."""
     journal_id: str
     session_id: str
     content: str
+    context_messages: list[str] = Field(default_factory=list)  # last ~5 messages for WHY this was noted
     topic: str | None = None
     importance: float = Field(default=0.5, ge=0.0, le=1.0)
     archived: bool = False
@@ -357,6 +377,21 @@ class CompactionResult(BaseModel):
     """What the summarization model returns per batch."""
     memories: list[CompactedMemory] = Field(default_factory=list)
     discarded: list[DiscardedJournal] = Field(default_factory=list)
+
+
+class MergeGroup(BaseModel):
+    """A group of memories to be merged into one."""
+    memory_ids: list[str]
+    merged_content: str
+    category: str = "other"
+    importance: float = Field(default=0.5, ge=0.0, le=1.0)
+    confidence: float = Field(default=0.8, ge=0.0, le=1.0)
+
+
+class MergeResult(BaseModel):
+    """Result of the memory merging pass."""
+    merge_groups: list[MergeGroup] = Field(default_factory=list)
+    unchanged: list[str] = Field(default_factory=list)
 
 
 class CompactionError(BaseModel):

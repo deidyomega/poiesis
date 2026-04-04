@@ -166,15 +166,17 @@ async def bootstrap(env: GlitchEnv | None = None) -> None:
     from glitch_core.agents import DEFAULT_PROMPTS
     config = load_yaml_config()
 
-    # Seed the router as an agent like any other — its soul is its system_prompt
+    # Seed the router as an agent like any other — with default tools
+    from glitch_core.agents.builtin_tools import DEFAULT_ROUTER_TOOLS
     router_data = config.router.model_dump()
     router_data["system_prompt"] = DEFAULT_SOUL
     router_data["output_type"] = "text"
+    router_data["tools"] = DEFAULT_ROUTER_TOOLS
     router_data.pop("output_schema", None)
     router_data["created_at"] = datetime.utcnow()
     router_data["updated_at"] = datetime.utcnow()
     await db.collection("agents").document("router").set(router_data)
-    logger.info("Created /agents/router")
+    logger.info("Created /agents/router (tools: %s)", DEFAULT_ROUTER_TOOLS)
 
     # Seed each worker agent
     for agent_cfg in config.agents:
@@ -193,6 +195,20 @@ async def bootstrap(env: GlitchEnv | None = None) -> None:
             if old_schema and old_schema in type_map:
                 agent_data["output_type"] = type_map[old_schema]
         agent_data.pop("output_schema", None)
+        # Default tools per agent
+        if not agent_data.get("tools"):
+            if agent_cfg.agent_id == "coder":
+                agent_data["tools"] = [
+                    "write_journal",
+                    "workspace_write", "workspace_read", "workspace_list",
+                    "workspace_run", "workspace_delete",
+                    "create_tool", "read_tool", "update_tool", "delete_tool", "list_tools",
+                    "create_page",
+                    "read_page", "update_page", "delete_page", "list_pages",
+                    "read_soul", "edit_soul",
+                ]
+            else:
+                agent_data["tools"] = ["write_journal"]
         agent_data["created_at"] = datetime.utcnow()
         agent_data["updated_at"] = datetime.utcnow()
         await db.collection("agents").document(agent_cfg.agent_id).set(agent_data)

@@ -118,8 +118,12 @@ class PageEngine:
         """Return all discovered FastAPI routers."""
         return self._routers
 
-    def reload_custom_pages(self) -> None:
-        """Remove old custom pages from sys.modules and re-discover."""
+    def reload_custom_pages(self) -> list[Any]:
+        """Remove old custom pages from sys.modules and re-discover.
+
+        Returns the list of NEW routers that need to be mounted to the app.
+        The caller is responsible for mounting them via app.include_router().
+        """
         to_remove = [
             name for name in sys.modules
             if name.startswith("glitch_page_custom_")
@@ -127,13 +131,27 @@ class PageEngine:
         for name in to_remove:
             del sys.modules[name]
 
-        # Remove custom entries
+        # Count how many custom routers we had before
+        num_custom = sum(1 for v in self.pages.values() if v.is_custom)
+
+        # Remove custom entries from pages dict
         self.pages = {
             k: v for k, v in self.pages.items() if not v.is_custom
         }
+
+        # Remove old custom routers from the list (they were appended last)
+        if num_custom > 0:
+            self._routers = self._routers[:-num_custom]
+
+        # Track position before re-scan
+        routers_before = len(self._routers)
 
         # Re-scan custom directory
         if self.pages_custom_dir.exists():
             self._scan_directory(self.pages_custom_dir, is_custom=True)
 
-        logger.info("Reloaded custom pages. Total pages: %d", len(self.pages))
+        # Return only the newly added routers
+        new_routers = self._routers[routers_before:]
+        logger.info("Reloaded custom pages. Total pages: %d, new routers: %d",
+                     len(self.pages), len(new_routers))
+        return new_routers

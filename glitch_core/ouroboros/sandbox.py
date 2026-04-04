@@ -49,6 +49,7 @@ class SafeFileWriter:
         self.pages_dir = self.repo_root / "glitch_core" / "web" / "pages_custom"
         self.templates_dir = self.repo_root / "glitch_core" / "web" / "templates_custom"
         self.page_engine = page_engine
+        self.app: Any | None = None  # Set by daemon after create_app()
 
         # Ensure directories exist
         self.tools_dir.mkdir(exist_ok=True)
@@ -126,6 +127,41 @@ class SafeFileWriter:
             rollback_id=commit_sha,
         )
 
+    def read_tool(self, tool_name: str) -> str | None:
+        """Read the source code of a tool. Returns code string or None."""
+        filename = f"{tool_name}.py" if not tool_name.endswith(".py") else tool_name
+        target = self.tools_dir / filename
+        if not target.exists():
+            return None
+        return target.read_text(encoding="utf-8")
+
+    def list_tools(self) -> list[dict[str, str]]:
+        """List all tool files in tools/."""
+        tools = []
+        for py_file in sorted(self.tools_dir.glob("*.py")):
+            if py_file.name.startswith("_"):
+                continue
+            tools.append({
+                "name": py_file.stem,
+                "filename": py_file.name,
+                "size": py_file.stat().st_size,
+            })
+        return tools
+
+    def delete_tool(self, tool_name: str) -> PromotionResult:
+        """Delete a tool file."""
+        filename = f"{tool_name}.py" if not tool_name.endswith(".py") else tool_name
+        target = self.tools_dir / filename
+        if not target.exists():
+            return PromotionResult(success=False, error=f"Tool '{tool_name}' not found")
+
+        _git_snapshot(self.repo_root, [str(target)], f"ouroboros: snapshot before deleting tool '{tool_name}'")
+        target.unlink()
+        commit_sha = _git_commit(self.repo_root, [str(target)], f"ouroboros: delete tool '{tool_name}'")
+
+        logger.info("Tool deleted: %s", tool_name)
+        return PromotionResult(success=True, rollback_id=commit_sha)
+
     def write_page(
         self,
         page_filename: str,
@@ -158,6 +194,15 @@ class SafeFileWriter:
                 validation_failures=py_failures,
             )
 
+        # Page-specific validation: catch common mistakes
+        page_failures = _validate_page_patterns(page_code, page_filename)
+        if page_failures:
+            return PromotionResult(
+                success=False,
+                error=page_failures[0].error,
+                validation_failures=page_failures,
+            )
+
         # Validate template
         tmpl_failures = _validate_template(template_code, template_filename)
         if tmpl_failures:
@@ -188,7 +233,12 @@ class SafeFileWriter:
         # Hot-reload pages
         if self.page_engine:
             try:
-                self.page_engine.reload_custom_pages()
+                new_routers = self.page_engine.reload_custom_pages()
+                # Mount any newly discovered routers to the live app
+                if new_routers and self.app:
+                    for new_router in new_routers:
+                        self.app.include_router(new_router)
+                    logger.info("Mounted %d new router(s) to live app", len(new_routers))
             except Exception as e:
                 logger.warning("Page reload failed, reverting: %s", e)
                 if commit_sha:
@@ -205,6 +255,73 @@ class SafeFileWriter:
             artifact_path=str(page_target),
             rollback_id=commit_sha,
         )
+
+    def read_page(self, page_name: str) -> dict[str, str] | None:
+        """Read the current code for a custom page. Returns {page_code, template_code} or None."""
+        page_file = self.pages_dir / f"{page_name}.py"
+        template_file = self.templates_dir / f"{page_name}.html"
+
+        if not page_file.exists():
+            return None
+
+        result = {"page_code": page_file.read_text(encoding="utf-8")}
+        if template_file.exists():
+            result["template_code"] = template_file.read_text(encoding="utf-8")
+        else:
+            result["template_code"] = ""
+
+        return result
+
+    def list_pages(self) -> list[dict[str, str]]:
+        """List all custom pages."""
+        pages = []
+        for py_file in sorted(self.pages_dir.glob("*.py")):
+            if py_file.name.startswith("_"):
+                continue
+            name = py_file.stem
+            has_template = (self.templates_dir / f"{name}.html").exists()
+            pages.append({
+                "name": name,
+                "page_file": str(py_file),
+                "has_template": has_template,
+            })
+        return pages
+
+    def delete_page(self, page_name: str) -> PromotionResult:
+        """Delete a custom page and its template."""
+        page_file = self.pages_dir / f"{page_name}.py"
+        template_file = self.templates_dir / f"{page_name}.html"
+
+        if not page_file.exists():
+            return PromotionResult(success=False, error=f"Page '{page_name}' not found")
+
+        # Git snapshot before deletion
+        existing = [str(f) for f in (page_file, template_file) if f.exists()]
+        _git_snapshot(self.repo_root, existing, f"ouroboros: snapshot before deleting page '{page_name}'")
+
+        # Delete files
+        if page_file.exists():
+            page_file.unlink()
+        if template_file.exists():
+            template_file.unlink()
+
+        # Git commit the deletion
+        commit_sha = _git_commit(
+            self.repo_root, existing,
+            f"ouroboros: delete page '{page_name}'",
+        )
+
+        # Hot-reload
+        if self.page_engine:
+            try:
+                self.page_engine.reload_custom_pages()
+                # Note: deleted pages — FastAPI doesn't support removing routes,
+                # but the page won't be in nav and will 404 on next restart.
+            except Exception:
+                logger.exception("Page reload after deletion failed (non-fatal)")
+
+        logger.info("Page deleted: %s", page_name)
+        return PromotionResult(success=True, rollback_id=commit_sha)
 
     def rollback(self, commit_sha: str) -> bool:
         """Manually rollback a specific promotion by git SHA."""
@@ -262,6 +379,78 @@ class RuntimeCircuitBreaker:
 
 
 # ── Validation Functions ───────────────────────────────────────────────────
+
+def _validate_page_patterns(code: str, filename: str) -> list[ValidationFailure]:
+    """Catch common page code mistakes that would cause runtime errors."""
+    failures: list[ValidationFailure] = []
+
+    # Check for `await` on TemplateResponse (it returns a Response, not a coroutine)
+    if "await" in code and "TemplateResponse" in code:
+        if "return await" in code and "TemplateResponse" in code:
+            failures.append(ValidationFailure(
+                stage=ValidationStage.AST_SCAN,
+                error=(
+                    "Do NOT use `await` with TemplateResponse. It returns a Response object, "
+                    "not a coroutine.\n"
+                    "WRONG: return await templates.TemplateResponse(...)\n"
+                    "RIGHT: return templates.TemplateResponse(request, \"name.html\")"
+                ),
+                fixable=True,
+            ))
+
+    # Check for creating own Jinja2Templates instance (causes cache/hash errors)
+    if "Jinja2Templates(" in code:
+        failures.append(ValidationFailure(
+            stage=ValidationStage.AST_SCAN,
+            error=(
+                "Do NOT create your own Jinja2Templates instance. "
+                "Use `templates = request.app.state.templates` inside route handlers instead."
+            ),
+            fixable=True,
+        ))
+
+    # Check for importing templates from nonexistent modules
+    if "from glitch_core.web.dependencies import" in code:
+        failures.append(ValidationFailure(
+            stage=ValidationStage.AST_SCAN,
+            error=(
+                "glitch_core.web.dependencies does not exist. "
+                "Use `templates = request.app.state.templates` inside route handlers instead."
+            ),
+            fixable=True,
+        ))
+
+    # Check for old-style TemplateResponse(name, context) — MUST be (request, name, context)
+    # AST check: find calls to TemplateResponse where first arg is a string literal
+    try:
+        tree = ast.parse(code)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                func = node.func
+                # Match: *.TemplateResponse(...) or TemplateResponse(...)
+                is_tr = (
+                    (isinstance(func, ast.Attribute) and func.attr == "TemplateResponse")
+                    or (isinstance(func, ast.Name) and func.id == "TemplateResponse")
+                )
+                if is_tr and node.args:
+                    first_arg = node.args[0]
+                    if isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
+                        failures.append(ValidationFailure(
+                            stage=ValidationStage.AST_SCAN,
+                            error=(
+                                "Wrong TemplateResponse signature. The first argument MUST be "
+                                "the request object, not the template name.\n"
+                                "WRONG: templates.TemplateResponse(\"name.html\", {\"request\": request})\n"
+                                "RIGHT: templates.TemplateResponse(request, \"name.html\", context={...})"
+                            ),
+                            fixable=True,
+                        ))
+                        break  # One error is enough
+    except SyntaxError:
+        pass  # Will be caught by _validate_python
+
+    return failures
+
 
 def _validate_python(code: str, filename: str) -> list[ValidationFailure]:
     """Validate Python code through multiple stages."""
