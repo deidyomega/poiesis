@@ -1,38 +1,52 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Browser gets read-only access for real-time listeners (onSnapshot).
-    // All writes go through the daemon's Admin SDK which bypasses rules.
+    // Single-tenant rules — network security (Tailscale) is the perimeter.
+    // Firebase Auth enforcement is on the roadmap.
+    //
+    // The daemon uses Admin SDK which bypasses all rules.
+    // Browser JS and external clients (desktop companion, mobile) use the
+    // client SDK and are governed by these rules.
 
+    // Sessions: clients can create sessions and read them
     match /sessions/{sessionId} {
       allow read: if true;
-      allow write: if false;
+      allow create: if true;
+      allow update: if false;  // Only daemon updates session metadata
+      allow delete: if false;
 
+      // Messages: the pub/sub bus — clients write user messages, read all
       match /messages/{messageId} {
         allow read: if true;
-        allow write: if false;
+        allow create: if true;   // Clients write user messages
+        allow update: if false;  // Only daemon updates (streaming content)
+        allow delete: if false;
       }
+
       match /sub_tasks/{taskId} {
         allow read: if true;
         allow write: if false;
       }
+
       match /run_logs/{logId} {
         allow read: if true;
         allow write: if false;
       }
     }
 
+    // Agents: read-only for clients (managed via web UI → Admin SDK)
     match /agents/{agentId} {
       allow read: if true;
       allow write: if false;
     }
 
+    // Meta: read-only for clients
     match /meta/{docId} {
       allow read: if true;
       allow write: if false;
     }
 
-    // Everything else: deny from browser
+    // Everything else: deny from browser/clients
     match /{document=**} {
       allow read, write: if false;
     }

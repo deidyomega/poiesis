@@ -71,9 +71,54 @@ async def apply_theme(request: Request, theme_name: str = Form(...)) -> Redirect
 
 
 @router.post("/generate", response_class=HTMLResponse)
-async def generate_theme(request: Request, prompt: str = Form("")) -> HTMLResponse:
-    """AI theme generation stub — Phase 2."""
+async def generate_theme_route(request: Request, prompt: str = Form("")) -> HTMLResponse:
+    """Generate a theme from a natural language description via AI."""
+    if not prompt.strip():
+        return HTMLResponse(
+            content='<div class="p-4 text-sm text-glitch-error">Please describe the theme you want.</div>',
+            status_code=200,
+        )
+
+    db = request.app.state.db
+
+    # Build a lightweight coder agent for theme generation
+    try:
+        from glitch_core.agents import load_agents_from_firestore, create_agent_from_config
+        agents = await load_agents_from_firestore(db)
+        coder_cfg = next((a for a in agents if a.agent_id == "coder"), None)
+        if coder_cfg is None:
+            # Fall back to router config
+            coder_cfg = next((a for a in agents if a.agent_id == "router"), None)
+        if coder_cfg is None:
+            return HTMLResponse(
+                content='<div class="p-4 text-sm text-glitch-error">No agent available for theme generation.</div>',
+                status_code=200,
+            )
+        coder_agent = create_agent_from_config(coder_cfg)
+    except Exception as e:
+        return HTMLResponse(
+            content=f'<div class="p-4 text-sm text-glitch-error">Failed to load agent: {e}</div>',
+            status_code=200,
+        )
+
+    from glitch_core.ouroboros.theme_generator import generate_theme
+    theme = await generate_theme(coder_agent, db, prompt)
+
+    if theme is None:
+        return HTMLResponse(
+            content='<div class="p-4 text-sm text-glitch-error">Theme generation failed. Try a different description.</div>',
+            status_code=200,
+        )
+
+    # Bust the theme cache so middleware picks up the new theme
+    request.app.state._theme_bust = True
+
     return HTMLResponse(
-        content='<div class="p-4 text-sm text-glitch-muted">AI theme generation is not yet implemented. Coming in Phase 2.</div>',
+        content=(
+            f'<div class="p-4 text-sm text-glitch-text">'
+            f'Theme "<strong>{theme.display_name}</strong>" generated and applied! '
+            f'<a href="/theme" class="underline text-glitch-accent">Refresh to see it.</a>'
+            f'</div>'
+        ),
         status_code=200,
     )

@@ -41,14 +41,18 @@
     <h2 class="text-lg font-semibold text-glitch-text mb-3">AI Generation</h2>
     <div class="bg-glitch-surface border border-glitch-border rounded-glitch p-4">
         <p class="text-sm text-glitch-muted mb-3">Describe a theme and the AI will generate it for you.</p>
-        <div class="flex gap-2">
-            <input type="text" placeholder="e.g. 'pink and gothic'" disabled
-                   class="flex-1 bg-glitch-bg border border-glitch-border rounded-glitch px-3 py-2 text-sm text-glitch-muted opacity-50">
-            <button disabled class="px-4 py-2 text-sm rounded-glitch bg-glitch-accent/50 text-white/50 cursor-not-allowed">
-                Generate
-            </button>
-        </div>
-        <p class="text-xs text-glitch-muted mt-2">Coming in Phase 2</p>
+        <form hx-post="/theme/generate" hx-target="#gen-result" hx-swap="innerHTML" hx-indicator="#gen-spinner">
+            <div class="flex gap-2">
+                <input type="text" name="prompt" placeholder="e.g. 'soft pink and cozy', 'dark cyberpunk neon', 'warm autumn forest'"
+                       class="flex-1 bg-glitch-bg border border-glitch-border rounded-glitch px-3 py-2 text-sm text-glitch-text"
+                       required>
+                <button type="submit" class="px-4 py-2 text-sm rounded-glitch bg-glitch-accent text-white hover:opacity-90 transition-opacity">
+                    Generate
+                </button>
+            </div>
+        </form>
+        <div id="gen-spinner" class="htmx-indicator text-xs text-glitch-muted mt-2">Generating theme... this takes a few seconds.</div>
+        <div id="gen-result" class="mt-2"></div>
     </div>
 </div>
 {% endblock %}

@@ -29,14 +29,18 @@
     <!-- AI Generation Stub -->
     <div class="mt-4 pt-4 border-t border-glitch-border">
         <p class="text-xs text-glitch-muted mb-2">AI Theme Generation</p>
-        <div class="flex gap-2">
-            <input type="text" placeholder="e.g. 'pink and gothic'" disabled
-                   class="flex-1 bg-glitch-bg border border-glitch-border rounded-glitch px-3 py-1.5 text-sm text-glitch-muted opacity-50">
-            <button disabled class="px-3 py-1.5 text-sm rounded-glitch bg-glitch-accent/50 text-white/50 cursor-not-allowed">
-                Generate
-            </button>
-        </div>
-        <p class="text-xs text-glitch-muted mt-1">Coming in Phase 2</p>
+        <form hx-post="/theme/generate" hx-target="#picker-gen-result" hx-swap="innerHTML" hx-indicator="#picker-gen-spinner">
+            <div class="flex gap-2">
+                <input type="text" name="prompt" placeholder="e.g. 'soft pink and cozy'"
+                       class="flex-1 bg-glitch-bg border border-glitch-border rounded-glitch px-3 py-1.5 text-sm text-glitch-text"
+                       required>
+                <button type="submit" class="px-3 py-1.5 text-sm rounded-glitch bg-glitch-accent text-white hover:opacity-90 transition-opacity">
+                    Generate
+                </button>
+            </div>
+        </form>
+        <div id="picker-gen-spinner" class="htmx-indicator text-xs text-glitch-muted mt-1">Generating...</div>
+        <div id="picker-gen-result" class="mt-1"></div>
     </div>
 
     <div class="mt-4 flex justify-end">
