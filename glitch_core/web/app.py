@@ -24,7 +24,7 @@ PAGES_CUSTOM_DIR = WEB_DIR / "pages_custom"
 
 def create_app(db: Any = None) -> FastAPI:
     """Assemble the FastAPI application with all routes, middleware, and templates."""
-    app = FastAPI(title="Glitch Core", version="0.1.0")
+    app = FastAPI(title="Poiesis", version="0.1.0")
 
     # Jinja2 templates — multi-directory search (custom templates override core)
     template_dirs = [str(TEMPLATES_DIR)]

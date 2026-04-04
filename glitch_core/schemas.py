@@ -140,7 +140,7 @@ class WorkerRegistration(BaseModel):
     node_name: str
     capabilities: list[str] = Field(default_factory=list)
     supported_agents: list[str] = Field(default_factory=list)
-    glitch_version: str = "0.1.0"
+    poiesis_version: str = "0.1.0"
     status: str = "online"
     current_task: str | None = None
     last_heartbeat: datetime = Field(default_factory=datetime.utcnow)

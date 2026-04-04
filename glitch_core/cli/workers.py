@@ -88,7 +88,7 @@ def worker_status_cmd() -> None:
             name = data.get("node_name", doc.id)
             caps = data.get("capabilities", [])
             agents = data.get("supported_agents", [])
-            version = data.get("glitch_version", "?")
+            version = data.get("poiesis_version", "?")
             task = data.get("current_task")
 
             last_hb = data.get("last_heartbeat")

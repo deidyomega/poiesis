@@ -45,7 +45,7 @@ async def register_worker(
         node_name=env.node_name,
         capabilities=env.node_capabilities,
         supported_agents=supported_agents,
-        glitch_version=__version__,
+        poiesis_version=__version__,
         status="online",
     )
 

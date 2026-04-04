@@ -42,7 +42,7 @@ class GlitchTheme(BaseModel):
     border_width: str = "1px"
 
     # Branding
-    app_name: str = "Glitch Core"
+    app_name: str = "Poiesis"
     app_icon: str = "🧠"
     logo_url: str | None = None
     favicon_url: str | None = None
@@ -109,7 +109,7 @@ PRESET_THEMES: dict[str, GlitchTheme] = {
         ),
         font_family="Crimson Text, serif",
         font_cdn="https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;0,700;1,400&display=swap",
-        app_name="Glitch Core",
+        app_name="Poiesis",
         app_icon="🦇",
         border_radius="0.25rem",
     ),
@@ -138,7 +138,7 @@ PRESET_THEMES: dict[str, GlitchTheme] = {
         ),
         font_family="system-ui, -apple-system, sans-serif",
         font_cdn=None,
-        app_name="Glitch Core",
+        app_name="Poiesis",
         app_icon="📊",
         border_radius="0.375rem",
         border_width="1px",
