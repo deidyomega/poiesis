@@ -36,6 +36,8 @@ class GlitchEnv(BaseSettings):
     mistral_api_key: str | None = None
     groq_api_key: str | None = None
     ollama_host: str | None = None
+    host: str = "127.0.0.1"
+    port: int = 8080
     node_name: str = "main"
     node_capabilities: list[str] = Field(default_factory=lambda: ["api"])
 

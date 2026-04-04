@@ -576,8 +576,8 @@ class GlitchDaemon:
             self.safe_writer.page_engine = app.state.page_engine
             self.safe_writer.app = app
             logger.info("SafeFileWriter wired to PageEngine + app for hot-reload")
-        host = os.environ.get("GLITCH_HOST", "127.0.0.1")
-        port = int(os.environ.get("GLITCH_PORT", "8080"))
+        host = self.env.host
+        port = self.env.port
         if host == "0.0.0.0":
             logger.warning("Web server binding to 0.0.0.0 — no auth! Only safe behind a VPN/Tailscale.")
         config = uvicorn.Config(
