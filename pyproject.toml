@@ -19,7 +19,7 @@ dependencies = [
     "google-auth>=2.25.0",
     "click>=8.1.0",
     "pyyaml>=6.0",
-    "python-multipart>=0.0.6",
+    "python-multipart>=0.0.27",
     "httpx>=0.25.0",
 ]
 
