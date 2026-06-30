@@ -28,8 +28,8 @@ across conversations.
 """
 
 
-def _merge_env(updates: dict[str, str]) -> None:
-    """Create/update ~/.glitch/.env, adding only missing keys (never clobber)."""
+def _write_env(updates: dict[str, str], *, overwrite: bool) -> None:
+    """Create/update ~/.glitch/.env. With overwrite=False, only adds missing keys."""
     GLITCH_HOME.mkdir(parents=True, exist_ok=True)
     existing: dict[str, str] = {}
     if ENV_FILE.exists():
@@ -39,9 +39,10 @@ def _merge_env(updates: dict[str, str]) -> None:
                 existing[k.strip()] = v
     changed = False
     for k, v in updates.items():
-        if k not in existing:
-            existing[k] = v
-            changed = True
+        if overwrite or k not in existing:
+            if existing.get(k) != v:
+                existing[k] = v
+                changed = True
     if changed or not ENV_FILE.exists():
         ENV_FILE.write_text("\n".join(f"{k}={v}" for k, v in existing.items()) + "\n")
         logger.info("Wrote %s", ENV_FILE)
@@ -50,11 +51,15 @@ def _merge_env(updates: dict[str, str]) -> None:
 async def bootstrap(env: GlitchEnv | None = None, *, admin_password: str | None = None) -> None:
     env = env or GlitchEnv()
 
-    env_updates = {"GLITCH_SESSION_SECRET": secrets.token_urlsafe(48)}
-    env_updates["GLITCH_ADMIN_USERNAME"] = env.admin_username
+    # Session secret + username: keep existing if already set (don't churn logins).
+    _write_env(
+        {"GLITCH_SESSION_SECRET": secrets.token_urlsafe(48),
+         "GLITCH_ADMIN_USERNAME": env.admin_username},
+        overwrite=False,
+    )
+    # Password: when provided, always (re)set it.
     if admin_password:
-        env_updates["GLITCH_ADMIN_PASSWORD_HASH"] = hash_password(admin_password)
-    _merge_env(env_updates)
+        _write_env({"GLITCH_ADMIN_PASSWORD_HASH": hash_password(admin_password)}, overwrite=True)
 
     db = Database(env.db_path)
     await db.connect()
