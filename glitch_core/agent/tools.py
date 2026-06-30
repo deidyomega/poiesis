@@ -12,15 +12,20 @@ from typing import Any
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
 from glitch_core import gitops, store
+from glitch_core.config import GLITCH_HOME
 from glitch_core.db import Database
 
 SERVER_NAME = "glitch"
+
+TASKS_FILE = GLITCH_HOME / "pm" / "task.md"
 
 # Fully-qualified MCP tool names the SDK expects in allowed_tools.
 MCP_TOOLS = [
     f"mcp__{SERVER_NAME}__remember",
     f"mcp__{SERVER_NAME}__recall",
     f"mcp__{SERVER_NAME}__write_journal",
+    f"mcp__{SERVER_NAME}__read_tasks",
+    f"mcp__{SERVER_NAME}__write_tasks",
     f"mcp__{SERVER_NAME}__request_deploy",
 ]
 
@@ -68,6 +73,27 @@ def build_mcp_server(
         return _text("Journaled.")
 
     @tool(
+        "read_tasks",
+        "Read the current task list (markdown).",
+        {"type": "object", "properties": {"note": {"type": "string"}}},
+    )
+    async def read_tasks(args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return _text(TASKS_FILE.read_text())
+        except OSError:
+            return _text("(no task list yet)")
+
+    @tool(
+        "write_tasks",
+        "Replace the entire task list with new markdown content.",
+        {"type": "object", "properties": {"content": {"type": "string"}}, "required": ["content"]},
+    )
+    async def write_tasks(args: dict[str, Any]) -> dict[str, Any]:
+        TASKS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        TASKS_FILE.write_text(args["content"])
+        return _text("Task list updated.")
+
+    @tool(
         "request_deploy",
         "Commit your code changes to this app and request a supervised restart + "
         "health-check (auto-rolls back to last-green if the new code won't boot). "
@@ -93,5 +119,6 @@ def build_mcp_server(
         )
 
     return create_sdk_mcp_server(
-        SERVER_NAME, "1.0.0", tools=[remember, recall, write_journal, request_deploy]
+        SERVER_NAME, "1.0.0",
+        tools=[remember, recall, write_journal, read_tasks, write_tasks, request_deploy],
     )

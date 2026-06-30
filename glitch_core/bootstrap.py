@@ -84,15 +84,16 @@ async def bootstrap(env: GlitchEnv | None = None, *, admin_password: str | None 
     if await store.get_channel(db, "pm") is None:
         await store.upsert_channel(
             db, "pm", "project-management", soul_path="souls/pm.md", cwd=str(pm_dir),
+            model="sonnet",
             allowed_tools=[
-                "Read", "Write", "Edit",
+                "mcp__glitch__read_tasks", "mcp__glitch__write_tasks",
                 "mcp__glitch__remember", "mcp__glitch__recall", "mcp__glitch__write_journal",
             ],
         )
         logger.info("Seeded #project-management channel")
     await store.create_schedule(
         db, channel_id="pm", schedule_id="sch_pm_daily",
-        prompt="Review task.md and tell me what to focus on today.",
+        prompt="Review my task list and tell me what to focus on today. Be brief.",
         kind="daily", at_hour=10, at_minute=0, tz=env.tz, notify=True,
     )
 

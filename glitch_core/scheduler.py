@@ -19,6 +19,8 @@ from glitch_core.db import Database
 
 logger = logging.getLogger(__name__)
 
+FIRE_TIMEOUT = 180  # hard cap on a single scheduled turn, so a nudge can't run away
+
 
 def _tz(name: str) -> ZoneInfo:
     try:
@@ -73,17 +75,22 @@ async def _fire(db: Database, env: GlitchEnv, schedule: dict) -> None:
         if m["content"]
     ]
     content, segments = "", None
-    async with aclosing(
-        run_turn(
-            db=db, channel=channel, history=history, user_message=schedule["prompt"],
-            message_id=None, repo_root=str(env.repo_root),
-        )
-    ) as turn:
-        async for ev in turn:
-            if ev["type"] == "done":
-                content, segments = ev["content"], ev["segments"]
-            elif ev["type"] == "error":
-                content = f"(scheduled task failed: {ev['message']})"
+    try:
+        async with asyncio.timeout(FIRE_TIMEOUT):
+            async with aclosing(
+                run_turn(
+                    db=db, channel=channel, history=history, user_message=schedule["prompt"],
+                    message_id=None, repo_root=str(env.repo_root), max_turns=8,
+                )
+            ) as turn:
+                async for ev in turn:
+                    if ev["type"] == "done":
+                        content, segments = ev["content"], ev["segments"]
+                    elif ev["type"] == "error":
+                        content = f"(scheduled task failed: {ev['message']})"
+    except TimeoutError:
+        logger.warning("Schedule %s timed out after %ss", schedule["id"], FIRE_TIMEOUT)
+        content = content or ""
     if content:
         await store.add_message(
             db, channel["id"], "agent", content,

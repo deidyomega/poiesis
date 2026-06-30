@@ -54,6 +54,7 @@ async def run_turn(
     message_id: str | None,
     repo_root: str | Path,
     should_cancel: Callable[[], bool] | None = None,
+    max_turns: int = 40,
 ) -> AsyncIterator[dict[str, Any]]:
     soul = _read_soul(repo_root, channel.get("soul_path"))
     memories = await store.list_memories(db)
@@ -74,7 +75,7 @@ async def run_turn(
         include_partial_messages=True,
         setting_sources=[],
         model=channel.get("model") or None,
-        max_turns=40,
+        max_turns=max_turns,
     )
     prompt = build_prompt(history, user_message)
 
