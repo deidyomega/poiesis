@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import time
 from contextlib import aclosing
@@ -91,48 +93,75 @@ async def stream(request: Request, agent_msg_id: str):
         segments = None
         cancelled = False
         last_persist = 0.0
+
+        # Run the turn in a producer task feeding a queue, so the SSE loop can emit
+        # keepalive comments during long gaps (a tool running for minutes). Without
+        # this, Cloudflare/proxies drop the idle connection (~100s) mid-turn.
+        queue: asyncio.Queue = asyncio.Queue()
+
+        async def produce():
+            try:
+                async with aclosing(
+                    run_turn(
+                        db=db, channel=channel, history=history, user_message=user_message,
+                        message_id=agent_msg_id, repo_root=str(env.repo_root),
+                    )
+                ) as turn:
+                    async for ev in turn:
+                        await queue.put(ev)
+            except Exception as e:  # noqa: BLE001 — surface to the stream
+                await queue.put({"type": "error", "message": f"{type(e).__name__}: {e}"})
+            finally:
+                await queue.put({"type": "__end__"})
+
+        producer = asyncio.create_task(produce())
         try:
-            async with aclosing(
-                run_turn(
-                    db=db,
-                    channel=channel,
-                    history=history,
-                    user_message=user_message,
-                    message_id=agent_msg_id,
-                    repo_root=str(env.repo_root),
-                )
-            ) as turn:
-                async for ev in turn:
+            while True:
+                try:
+                    ev = await asyncio.wait_for(queue.get(), timeout=15.0)
+                except asyncio.TimeoutError:
                     if await request.is_disconnected():
                         cancelled = True
                         break
-                    t = ev["type"]
-                    if t == "text":
-                        accumulated += ev["delta"]
-                        yield _sse({"t": "text", "delta": ev["delta"]})
-                    elif t == "thinking":
-                        yield _sse({"t": "thinking", "delta": ev["delta"]})
-                    elif t == "tool_call":
-                        yield _sse({"t": "tool", "name": ev["name"]})
-                    elif t == "tool_result":
-                        yield _sse({"t": "tool_result", "name": ev["name"]})
-                    elif t == "error":
-                        yield _sse({"t": "error", "message": ev["message"]})
-                    elif t == "done":
-                        accumulated = ev["content"] or accumulated
-                        segments = ev["segments"]
-                        cancelled = ev["cancelled"]
-                    now = time.time()
-                    if now - last_persist > 0.6:
-                        await store.update_message(db, agent_msg_id, content=accumulated)
-                        last_persist = now
+                    yield ": keepalive\n\n"  # SSE comment; ignored by EventSource
+                    continue
+                if ev.get("type") == "__end__":
+                    break
+                if await request.is_disconnected():
+                    cancelled = True
+                    break
+                t = ev["type"]
+                if t == "text":
+                    accumulated += ev["delta"]
+                    yield _sse({"t": "text", "delta": ev["delta"]})
+                elif t == "tool_call":
+                    yield _sse({"t": "tool", "name": ev["name"]})
+                elif t == "tool_result":
+                    yield _sse({"t": "tool_result", "name": ev["name"]})
+                elif t == "error":
+                    yield _sse({"t": "error", "message": ev["message"]})
+                elif t == "done":
+                    accumulated = ev["content"] or accumulated
+                    segments = ev["segments"]
+                    cancelled = ev["cancelled"]
+                now = time.time()
+                if now - last_persist > 0.6:
+                    await store.update_message(db, agent_msg_id, content=accumulated)
+                    last_persist = now
         finally:
+            producer.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await producer
             await store.update_message(
                 db, agent_msg_id, content=accumulated, segments=segments, cancelled=cancelled
             )
         yield _sse({"t": "done", "content": accumulated, "segments": segments, "cancelled": cancelled})
 
-    return StreamingResponse(gen(), media_type="text/event-stream")
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/chat/{channel_id}/deploys")

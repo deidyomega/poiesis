@@ -1,14 +1,15 @@
 # Deploying Glitch to `agent.mattharris.tech`
 
-Single-user, self-hosted. The app runs behind Caddy (auto-TLS), gated by a
-username/password. Goal: open `https://agent.mattharris.tech`, log in, chat with
-#general and #project-management, and have the 10am nudge fire on its own.
+Single-user, self-hosted. The app runs behind a **Cloudflare Tunnel** (CF terminates TLS
+at its edge), gated by a username/password. Goal: open `https://agent.mattharris.tech`,
+log in, chat with #general and #project-management, and have the 10am nudge fire on its own.
 
 ## 0. Prereqs on the server
 - `git`, `uv`, Node.js (for the Claude Agent SDK), and the `claude` CLI on PATH
-- `caddy` installed and running
-- Ports **80** and **443** open to the internet
-- DNS: an **A/AAAA record** for `agent.mattharris.tech` → this server's IP
+- `cloudflared` installed
+- **No inbound ports needed** — cloudflared dials *out* to Cloudflare, so an ISP that
+  blocks port 80, CGNAT, or no port-forwarding is all a non-issue
+- `mattharris.tech` managed by Cloudflare DNS (the tunnel creates the hostname record)
 
 ## 1. Get the code
 ```bash
@@ -25,7 +26,7 @@ DB, the default theme, and the #general + #project-management channels with the 
 schedule. Then add to `~/.glitch/.env`:
 ```
 GLITCH_TZ=America/New_York               # so the PM nudge fires at YOUR 10am
-GLITCH_HOST=127.0.0.1                     # keep private; Caddy faces the internet
+GLITCH_HOST=127.0.0.1                     # keep private; the tunnel reaches it
 GLITCH_PORT=8080
 ```
 Re-running `glitch bootstrap` is always safe (idempotent).
@@ -36,12 +37,22 @@ Re-running `glitch bootstrap` is always safe (idempotent).
   per token.
 - **API key:** `export ANTHROPIC_API_KEY=sk-ant-...` (metered billing).
 
-## 3. Reverse proxy (TLS)
+## 3. Cloudflare Tunnel (TLS + ingress, no open ports)
 ```bash
-sudo cp deploy/Caddyfile /etc/caddy/Caddyfile
-sudo systemctl reload caddy
+cloudflared tunnel login                     # authorize the mattharris.tech zone
+cloudflared tunnel create glitch             # prints a tunnel ID + credentials json
+cloudflared tunnel route dns glitch agent.mattharris.tech
+# set the tunnel name + credentials-file path in deploy/cloudflared-config.yml, then:
+sudo cp deploy/cloudflared-config.yml /etc/cloudflared/config.yml
+sudo cloudflared service install             # runs the tunnel on boot
 ```
-Caddy fetches a certificate automatically once DNS resolves to this host.
+CF terminates TLS at its edge and routes `agent.mattharris.tech` → `http://localhost:8080`.
+SSE works through the tunnel — the app sends keepalives so long agent turns don't hit CF's
+~100s idle cutoff.
+
+**Optional second gate:** put **Cloudflare Access** in front of the hostname (email OTP /
+SSO) so traffic is authenticated before it ever reaches the app — sensible given #general
+can run code. The app's own login still applies underneath.
 
 ## 4. Run as a service
 Edit `deploy/glitch.service` (the `User`, `WorkingDirectory`, `HOME`, and the node

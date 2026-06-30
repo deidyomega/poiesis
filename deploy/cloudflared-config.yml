@@ -1,0 +1,22 @@
+# Cloudflare Tunnel config for Glitch.
+#
+# cloudflared dials OUT to Cloudflare's edge — no inbound ports, no port-forward,
+# ISP port-80 blocks irrelevant. Cloudflare terminates TLS and routes the hostname
+# to the local app on 127.0.0.1:8080.
+#
+# Setup (see deploy/README.md §3):
+#   cloudflared tunnel login
+#   cloudflared tunnel create glitch              # note the tunnel ID + creds path
+#   cloudflared tunnel route dns glitch agent.mattharris.tech
+#   sudo cp deploy/cloudflared-config.yml /etc/cloudflared/config.yml   # after editing below
+#   sudo cloudflared service install
+#
+# Edit the two values below to match `tunnel create` output.
+
+tunnel: glitch
+credentials-file: /home/matt/.cloudflared/<TUNNEL_ID>.json
+
+ingress:
+  - hostname: agent.mattharris.tech
+    service: http://localhost:8080
+  - service: http_status:404
