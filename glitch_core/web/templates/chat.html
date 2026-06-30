@@ -35,12 +35,7 @@
 {% block content %}
 <div class="flex flex-col h-[calc(100vh-2rem)] lg:h-[calc(100vh-3rem)] min-w-0">
     <div class="flex items-center gap-2 mb-3 shrink-0">
-        <h1 class="text-lg font-semibold text-glitch-text">#{{ channel.name if channel else "general" }}</h1>
-        {% if channels|length > 1 %}
-        <select onchange="location.href='/c/'+this.value" class="bg-glitch-surface border border-glitch-border rounded-glitch px-2 py-1 text-xs text-glitch-muted">
-            {% for c in channels %}<option value="{{ c.id }}" {% if c.id==channel_id %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
-        </select>
-        {% endif %}
+        <h1 class="text-lg font-semibold text-glitch-text"># {{ (channel.name if channel else "general").replace('-', ' ').title() }}</h1>
         <form method="post" action="/chat/clear" class="ml-auto">
             <input type="hidden" name="channel_id" value="{{ channel_id }}">
             <button type="submit" onclick="return confirm('Clear this channel?')"
