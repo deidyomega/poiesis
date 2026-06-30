@@ -52,7 +52,7 @@
         <div class="flex {% if m.role=='user' %}justify-end{% else %}justify-start{% endif %}" data-msg-id="{{ m.id }}" data-ts="{{ m.created_at }}">
             <div class="max-w-[85%] px-4 py-2.5 rounded-glitch text-sm leading-relaxed msg-markdown overflow-x-auto
                         {% if m.role=='user' %}bg-glitch-accent text-white msg-user{% elif m.role=='system' %}bg-glitch-warning/20 border border-glitch-warning/30{% else %}bg-glitch-surface border border-glitch-border{% endif %}"
-                 data-raw="{{ m.content|e }}" {% if m.segments %}data-segments="{{ m.segments|tojson|e }}"{% endif %}>{{ m.content }}</div>
+                 data-raw="{{ m.content|e }}" {% if m.segments %}data-segments='{{ m.segments|tojson }}'{% endif %}>{{ m.content }}</div>
         </div>
         {% endfor %}
     </div>
