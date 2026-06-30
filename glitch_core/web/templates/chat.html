@@ -28,6 +28,7 @@
     .deploy-step.active{opacity:1;color:{{ theme.colors.accent }}}
     .deploy-step.ok{opacity:1;color:{{ theme.colors.success }}}
     .deploy-step.bad{opacity:1;color:{{ theme.colors.error }}}
+    .notif-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:{{ theme.colors.warning }};margin-right:.4em}
 </style>
 {% endblock %}
 
@@ -52,7 +53,7 @@
 
     <div id="message-list" class="flex-1 overflow-y-auto space-y-3 mb-3 pr-1 min-w-0">
         {% for m in messages %}
-        <div class="flex {% if m.role=='user' %}justify-end{% else %}justify-start{% endif %}" data-msg-id="{{ m.id }}">
+        <div class="flex {% if m.role=='user' %}justify-end{% else %}justify-start{% endif %}" data-msg-id="{{ m.id }}" data-ts="{{ m.created_at }}">
             <div class="max-w-[85%] px-4 py-2.5 rounded-glitch text-sm leading-relaxed msg-markdown overflow-x-auto
                         {% if m.role=='user' %}bg-glitch-accent text-white{% elif m.role=='system' %}bg-glitch-warning/20 border border-glitch-warning/30{% else %}bg-glitch-surface border border-glitch-border{% endif %}"
                  data-raw="{{ m.content|e }}" {% if m.segments %}data-segments="{{ m.segments|tojson|e }}"{% endif %}>{{ m.content }}</div>
@@ -77,10 +78,13 @@ const form = document.getElementById('chat-form');
 const sendBtn = document.getElementById('send-btn');
 const stopBtn = document.getElementById('stop-btn');
 let es = null;
+let lastSeen = '';                    // max created_at seen (for the poller)
+const localIds = new Set();           // ids created in this tab (avoid poller dupes)
 
 const esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const md = t => t ? marked.parse(t) : '';
-function scroll(){ list.scrollTop = list.scrollHeight; }
+const scroll = () => { list.scrollTop = list.scrollHeight; };
+const known = id => id && (localIds.has(id) || document.querySelector(`[data-msg-id="${id}"]`));
 
 function renderSegments(segs){
     let h='';
@@ -97,23 +101,46 @@ function renderSegments(segs){
     return h;
 }
 
-// Render server-supplied bubbles.
-document.querySelectorAll('[data-raw]').forEach(el => {
-    if(el.dataset.segments){ try{ const s=JSON.parse(el.dataset.segments); if(s&&s.length){ el.innerHTML=renderSegments(s); return; } }catch(e){} }
-    el.innerHTML = md(el.dataset.raw);
-});
-scroll();
-
-function bubble(role, id){
+function bubbleBody(role){
     const wrap = document.createElement('div');
     wrap.className = 'flex ' + (role==='user'?'justify-end':'justify-start');
-    if(id) wrap.dataset.msgId = id;
     const b = document.createElement('div');
     b.className = 'max-w-[85%] px-4 py-2.5 rounded-glitch text-sm leading-relaxed msg-markdown overflow-x-auto ' +
-        (role==='user' ? 'bg-glitch-accent text-white' : 'bg-glitch-surface border border-glitch-border');
+        (role==='user' ? 'bg-glitch-accent text-white'
+         : role==='system' ? 'bg-glitch-warning/20 border border-glitch-warning/30'
+         : 'bg-glitch-surface border border-glitch-border');
     wrap.appendChild(b); list.appendChild(wrap); scroll();
-    return b;
+    return { wrap, b };
 }
+
+// Render a complete message object (from the poller / server).
+function appendMessage(m){
+    const { wrap, b } = bubbleBody(m.role);
+    wrap.dataset.msgId = m.id;
+    if(m.created_at) wrap.dataset.ts = m.created_at;
+    if(m.segments && m.segments.length) b.innerHTML = renderSegments(m.segments);
+    else b.innerHTML = (m.notification ? '<span class="notif-dot"></span>' : '') + md(m.content);
+    if(m.notification) fireNotification(m);
+}
+
+function fireNotification(m){
+    try{
+        if('Notification' in window && Notification.permission==='granted'){
+            new Notification('{{ theme.app_name }} · #'+channelId, { body: (m.content||'').slice(0,180) });
+        }
+    }catch(e){}
+}
+
+// Render server-supplied bubbles + seed lastSeen.
+document.querySelectorAll('#message-list [data-msg-id]').forEach(w => {
+    const el = w.querySelector('[data-raw]');
+    if(el){
+        if(el.dataset.segments){ try{ const s=JSON.parse(el.dataset.segments); if(s&&s.length){ el.innerHTML=renderSegments(s); } else el.innerHTML=md(el.dataset.raw); }catch(e){ el.innerHTML=md(el.dataset.raw); } }
+        else el.innerHTML = md(el.dataset.raw);
+    }
+    if(w.dataset.ts && w.dataset.ts > lastSeen) lastSeen = w.dataset.ts;
+});
+scroll();
 
 function setGenerating(on){ sendBtn.classList.toggle('hidden', on); stopBtn.classList.toggle('hidden', !on); }
 
@@ -121,27 +148,31 @@ async function send(){
     const text = input.value.trim();
     if(!text) return;
     input.value=''; input.style.height='auto';
-    bubble('user').innerHTML = md(text);
-    const agentBubble = bubble('agent');
-    agentBubble.innerHTML = '<div class="thinking-dots"><span></span><span></span><span></span></div>';
+    const u = bubbleBody('user'); u.b.innerHTML = md(text);
+    const a = bubbleBody('agent');
+    a.b.innerHTML = '<div class="thinking-dots"><span></span><span></span><span></span></div>';
     setGenerating(true);
     const fd = new FormData(); fd.append('channel_id', channelId); fd.append('message', text);
     let agentId;
-    try{ const r = await fetch('/chat/send',{method:'POST',body:fd}); agentId=(await r.json()).agent_id; }
-    catch(e){ agentBubble.innerHTML='<span class="text-glitch-error text-sm">Failed to send.</span>'; setGenerating(false); return; }
+    try{
+        const r = await fetch('/chat/send',{method:'POST',body:fd});
+        const j = await r.json(); agentId = j.agent_id;
+        u.wrap.dataset.msgId = j.user_id; a.wrap.dataset.msgId = j.agent_id;
+        localIds.add(j.user_id); localIds.add(j.agent_id);
+    }catch(e){ a.b.innerHTML='<span class="text-glitch-error text-sm">Failed to send.</span>'; setGenerating(false); return; }
 
     let acc=''; let toolNote='';
     es = new EventSource(`/chat/stream/${agentId}`);
     es.onmessage = (e) => {
         const ev = JSON.parse(e.data);
-        if(ev.t==='text'){ acc += ev.delta; agentBubble.innerHTML = md(acc) + toolNote; scroll(); }
-        else if(ev.t==='tool'){ toolNote = `<div class="text-xs text-glitch-muted mt-1">🔧 ${esc(ev.name)}…</div>`; agentBubble.innerHTML = md(acc) + toolNote; scroll(); }
-        else if(ev.t==='error'){ agentBubble.innerHTML = `<span class="text-glitch-error">${esc(ev.message)}</span>`; }
+        if(ev.t==='text'){ acc += ev.delta; a.b.innerHTML = md(acc) + toolNote; scroll(); }
+        else if(ev.t==='tool'){ toolNote = `<div class="text-xs text-glitch-muted mt-1">🔧 ${esc(ev.name)}…</div>`; a.b.innerHTML = md(acc) + toolNote; scroll(); }
+        else if(ev.t==='error'){ a.b.innerHTML = `<span class="text-glitch-error">${esc(ev.message)}</span>`; }
         else if(ev.t==='done'){
             toolNote='';
-            if(ev.segments && ev.segments.length) agentBubble.innerHTML = renderSegments(ev.segments);
-            else agentBubble.innerHTML = md(ev.content||acc);
-            if(ev.cancelled) agentBubble.innerHTML += '<div class="text-xs text-glitch-muted mt-1 italic">Stopped</div>';
+            if(ev.segments && ev.segments.length) a.b.innerHTML = renderSegments(ev.segments);
+            else a.b.innerHTML = md(ev.content||acc);
+            if(ev.cancelled) a.b.innerHTML += '<div class="text-xs text-glitch-muted mt-1 italic">Stopped</div>';
             es.close(); es=null; setGenerating(false); scroll(); pollDeploys();
         }
     };
@@ -152,13 +183,29 @@ stopBtn.addEventListener('click', () => { if(es){ es.close(); es=null; } setGene
 form.addEventListener('submit', e => { e.preventDefault(); send(); });
 input.addEventListener('keydown', e => { if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); send(); } });
 input.addEventListener('input', () => { input.style.height='auto'; input.style.height=Math.min(input.scrollHeight,160)+'px'; });
+if('Notification' in window && Notification.permission==='default') Notification.requestPermission();
+
+// ── Live message poller (proactive/scheduled messages appear without refresh) ──
+async function pollMessages(){
+    try{
+        const r = await fetch(`/chat/${channelId}/messages?after=${encodeURIComponent(lastSeen)}`);
+        if(!r.ok) return;
+        const data = await r.json();
+        for(const m of (data.messages||[])){
+            if(m.created_at && m.created_at > lastSeen) lastSeen = m.created_at;
+            if(known(m.id)) continue;        // already shown (incl. our own streamed msgs)
+            if(!m.content) continue;          // skip empty placeholders mid-stream
+            appendMessage(m);
+        }
+    }catch(e){ /* server may be restarting — retry next tick */ }
+}
+setInterval(pollMessages, 3000);
 
 // ── Deploy card poller (durable-state projection; survives app restarts) ──
 const DEPLOY_STEPS = ['requested','committing','restarting','health_check','live'];
 function deployCard(d){
     const failed = d.status==='rolled_back' || d.status==='failed';
-    let steps='';
-    const idx = DEPLOY_STEPS.indexOf(d.status);
+    let steps=''; const idx = DEPLOY_STEPS.indexOf(d.status);
     DEPLOY_STEPS.forEach((s,i)=>{
         let cls='deploy-step';
         if(d.status==='live' || (idx>=0 && i<idx)) cls+=' ok';
@@ -177,9 +224,8 @@ async function pollDeploys(){
         const r = await fetch(`/chat/${channelId}/deploys`);
         if(!r.ok) return;
         const data = await r.json();
-        const box = document.getElementById('deploys');
-        box.innerHTML = (data.deploys||[]).slice(0,3).map(deployCard).join('');
-    }catch(e){ /* app may be restarting — retry next tick */ }
+        document.getElementById('deploys').innerHTML = (data.deploys||[]).slice(0,3).map(deployCard).join('');
+    }catch(e){}
 }
 pollDeploys();
 setInterval(pollDeploys, 2500);

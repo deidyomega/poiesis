@@ -75,6 +75,27 @@ async def bootstrap(env: GlitchEnv | None = None, *, admin_password: str | None 
         )
         logger.info("Seeded #general channel")
 
+    # #project-management: persona + task.md (in a data dir, not the code repo) + 10am nudge.
+    pm_dir = GLITCH_HOME / "pm"
+    pm_dir.mkdir(parents=True, exist_ok=True)
+    task_file = pm_dir / "task.md"
+    if not task_file.exists():
+        task_file.write_text("# Task list\n\n_(empty — tell me what you're working on)_\n")
+    if await store.get_channel(db, "pm") is None:
+        await store.upsert_channel(
+            db, "pm", "project-management", soul_path="souls/pm.md", cwd=str(pm_dir),
+            allowed_tools=[
+                "Read", "Write", "Edit",
+                "mcp__glitch__remember", "mcp__glitch__recall", "mcp__glitch__write_journal",
+            ],
+        )
+        logger.info("Seeded #project-management channel")
+    await store.create_schedule(
+        db, channel_id="pm", schedule_id="sch_pm_daily",
+        prompt="Review task.md and tell me what to focus on today.",
+        kind="daily", at_hour=10, at_minute=0, tz=env.tz, notify=True,
+    )
+
     if (
         gitops.has_git(env.repo_root)
         and await store.get_setting(db, "last_green_sha") is None

@@ -143,6 +143,14 @@ async def channel_deploys(request: Request, channel_id: str) -> JSONResponse:
     return JSONResponse({"deploys": rows})
 
 
+@router.get("/chat/{channel_id}/messages")
+async def channel_messages(request: Request, channel_id: str, after: str = "") -> JSONResponse:
+    """New messages after an ISO timestamp — drives the live poller for proactive msgs."""
+    db = request.app.state.db
+    rows = await store.messages_after(db, channel_id, after)
+    return JSONResponse({"messages": rows})
+
+
 @router.post("/chat/clear")
 async def clear(request: Request, channel_id: str = Form(...)):
     db = request.app.state.db

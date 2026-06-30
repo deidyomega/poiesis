@@ -45,6 +45,9 @@ class GlitchEnv(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 8080
 
+    # Timezone for scheduled tasks (e.g. the PM 10am nudge). IANA name, e.g. "America/New_York".
+    tz: str = "UTC"
+
     def effective_session_secret(self) -> str:
         """Return a stable session secret, persisting a generated one if unset.
 

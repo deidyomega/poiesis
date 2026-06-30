@@ -63,6 +63,7 @@ async def list_messages(db: Database, channel_id: str, limit: int = 200) -> list
     for r in rows:
         r["segments"] = json.loads(r["segments"]) if r.get("segments") else None
         r["cancelled"] = bool(r["cancelled"])
+        r["notification"] = bool(r.get("notification"))
     return rows
 
 
@@ -71,6 +72,7 @@ async def get_message(db: Database, message_id: str) -> dict[str, Any] | None:
     if row:
         row["segments"] = json.loads(row["segments"]) if row.get("segments") else None
         row["cancelled"] = bool(row["cancelled"])
+        row["notification"] = bool(row.get("notification"))
     return row
 
 
@@ -81,14 +83,29 @@ async def add_message(
     content: str = "",
     *,
     segments: list[dict[str, Any]] | None = None,
+    notification: bool = False,
 ) -> str:
     mid = _id("msg")
     await db.execute(
-        "INSERT INTO messages (id, channel_id, role, content, segments, cancelled, created_at) "
-        "VALUES (?, ?, ?, ?, ?, 0, ?)",
-        (mid, channel_id, role, content, json.dumps(segments) if segments else None, _now()),
+        "INSERT INTO messages (id, channel_id, role, content, segments, cancelled, notification, created_at) "
+        "VALUES (?, ?, ?, ?, ?, 0, ?, ?)",
+        (mid, channel_id, role, content, json.dumps(segments) if segments else None,
+         1 if notification else 0, _now()),
     )
     return mid
+
+
+async def messages_after(db: Database, channel_id: str, after_iso: str) -> list[dict[str, Any]]:
+    """Messages created strictly after an ISO timestamp (for the live poller)."""
+    rows = await db.fetch_all(
+        "SELECT * FROM messages WHERE channel_id = ? AND created_at > ? ORDER BY created_at",
+        (channel_id, after_iso),
+    )
+    for r in rows:
+        r["segments"] = json.loads(r["segments"]) if r.get("segments") else None
+        r["cancelled"] = bool(r["cancelled"])
+        r["notification"] = bool(r.get("notification"))
+    return rows
 
 
 async def update_message(
@@ -219,4 +236,45 @@ async def set_setting(db: Database, key: str, value: Any) -> None:
         "INSERT INTO settings (key, value) VALUES (?, ?) "
         "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         (key, json.dumps(value)),
+    )
+
+
+# ── Schedules ─────────────────────────────────────────────────────────────────
+
+async def list_enabled_schedules(db: Database) -> list[dict[str, Any]]:
+    return await db.fetch_all("SELECT * FROM schedules WHERE enabled = 1")
+
+
+async def get_schedule(db: Database, schedule_id: str) -> dict[str, Any] | None:
+    return await db.fetch_one("SELECT * FROM schedules WHERE id = ?", (schedule_id,))
+
+
+async def create_schedule(
+    db: Database,
+    *,
+    channel_id: str,
+    prompt: str,
+    kind: str = "daily",
+    at_hour: int | None = None,
+    at_minute: int = 0,
+    interval_seconds: int | None = None,
+    tz: str = "UTC",
+    notify: bool = True,
+    schedule_id: str | None = None,
+) -> str:
+    sid = schedule_id or _id("sch")
+    await db.execute(
+        "INSERT INTO schedules (id, channel_id, prompt, kind, at_hour, at_minute, "
+        "interval_seconds, tz, notify, enabled, last_run, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, ?) "
+        "ON CONFLICT(id) DO NOTHING",
+        (sid, channel_id, prompt, kind, at_hour, at_minute, interval_seconds, tz,
+         1 if notify else 0, _now()),
+    )
+    return sid
+
+
+async def set_schedule_last_run(db: Database, schedule_id: str, when_iso: str) -> None:
+    await db.execute(
+        "UPDATE schedules SET last_run = ? WHERE id = ?", (when_iso, schedule_id)
     )

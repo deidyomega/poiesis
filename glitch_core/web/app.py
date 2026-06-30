@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -36,10 +38,18 @@ def create_app(db: Database, env: GlitchEnv) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        from glitch_core.scheduler import run_scheduler
+
         await db.connect()
         await run_migrations(db)
-        yield
-        await db.close()
+        scheduler_task = asyncio.create_task(run_scheduler(db, env))
+        try:
+            yield
+        finally:
+            scheduler_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await scheduler_task
+            await db.close()
 
     app = FastAPI(title="Glitch", version="0.2.0", lifespan=lifespan)
 
