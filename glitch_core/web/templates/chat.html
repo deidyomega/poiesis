@@ -85,8 +85,8 @@ const known = id => id && (localIds.has(id) || document.querySelector(`[data-msg
 function renderSegments(segs){
     let h='';
     for(const s of segs){
-        if(s.type==='text') h += `<div class="msg-markdown">${md(s.content)}</div>`;
-        else if(s.type==='thinking') h += `<details class="seg-thinking"><summary>Thinking…</summary><pre>${esc(s.content)}</pre></details>`;
+        if(s.type==='text'){ if(!(s.content||'').trim()) continue; h += `<div class="msg-markdown">${md(s.content)}</div>`; }
+        else if(s.type==='thinking'){ if(!(s.content||'').trim()) continue; h += `<details class="seg-thinking"><summary>Thinking…</summary><pre>${esc(s.content)}</pre></details>`; }
         else if(s.type==='tool_call'){
             h += `<details class="seg-tool"><summary>🔧 ${esc(s.name)}</summary>`;
             if(s.args_summary) h += `<div class="seg-label">Args</div><pre>${esc(s.args_summary)}</pre>`;

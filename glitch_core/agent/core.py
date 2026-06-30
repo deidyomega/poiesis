@@ -171,6 +171,13 @@ async def run_turn(
         yield {"type": "error", "message": f"{type(e).__name__}: {e}"}
         return
 
+    # Drop empty text/thinking segments — the SDK emits redacted (text-less)
+    # thinking blocks, and we don't want blank "Thinking…" boxes. Tool calls stay.
+    segments = [
+        s for s in segments
+        if s["type"] == "tool_call" or (s.get("content") or "").strip()
+    ]
+
     yield {
         "type": "done",
         "content": content,
