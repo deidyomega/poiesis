@@ -19,9 +19,8 @@ env/
 *.swp
 *.swo
 
-# NOTE: AI-generated code (pages_custom/, templates_custom/, tools/) is
-# intentionally TRACKED in v2 — self-mod commits it and git is the rollback
-# safety net, so it must not be ignored.
+# NOTE: AI-generated code (pages_custom/, templates_custom/) is intentionally
+# TRACKED in v2 — self-mod commits it and git is the rollback safety net.
 
 # Local SQLite state
 *.db
@@ -32,9 +31,6 @@ env/
 .env
 credentials.json
 *.json.bak
-
-# Admin/maintenance scripts
-wipe_memories.py
 
 # OS
 .DS_Store
