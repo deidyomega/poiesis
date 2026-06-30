@@ -19,20 +19,19 @@ env/
 *.swp
 *.swo
 
-# Glitch user-generated content (survives updates)
-glitch_core/web/pages_custom/*.py
-!glitch_core/web/pages_custom/.gitkeep
-glitch_core/web/templates_custom/*.html
-!glitch_core/web/templates_custom/.gitkeep
-tools/*.py
-!tools/.gitkeep
+# NOTE: AI-generated code (pages_custom/, templates_custom/, tools/) is
+# intentionally TRACKED in v2 — self-mod commits it and git is the rollback
+# safety net, so it must not be ignored.
+
+# Local SQLite state
+*.db
+*.db-wal
+*.db-shm
 
 # Secrets and credentials
 .env
-~/.glitch/
 credentials.json
 *.json.bak
-.firebaserc
 
 # Admin/maintenance scripts
 wipe_memories.py
