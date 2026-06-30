@@ -26,7 +26,7 @@
                    onclick="if(window.innerWidth < 1024) toggleSidebar()"
                    class="flex items-center gap-2 px-2 py-1.5 rounded-glitch text-sm transition-colors
                           {% if active %}bg-glitch-accent/20 text-glitch-accent font-medium{% else %}text-glitch-text hover:bg-glitch-border/50 hover:text-glitch-accent{% endif %}">
-                    <span># {{ c.name.replace('-', ' ').title() }}</span>
+                    <span>{{ c.name.replace('-', ' ').title() }}</span>
                 </a>
             </li>
             {% endfor %}

@@ -35,7 +35,7 @@
 {% block content %}
 <div class="flex flex-col h-[calc(100vh-2rem)] lg:h-[calc(100vh-3rem)] min-w-0">
     <div class="flex items-center gap-2 mb-3 shrink-0">
-        <h1 class="text-lg font-semibold text-glitch-text"># {{ (channel.name if channel else "general").replace('-', ' ').title() }}</h1>
+        <h1 class="text-lg font-semibold text-glitch-text">{{ (channel.name if channel else "general").replace('-', ' ').title() }}</h1>
         <form method="post" action="/chat/clear" class="ml-auto">
             <input type="hidden" name="channel_id" value="{{ channel_id }}">
             <button type="submit" onclick="return confirm('Clear this channel?')"
@@ -57,7 +57,7 @@
     </div>
 
     <form id="chat-form" class="flex gap-2 items-end shrink-0 pb-1">
-        <textarea id="chat-input" rows="1" placeholder="Message #{{ channel.name if channel else 'general' }}… (Shift+Enter for newline)"
+        <textarea id="chat-input" rows="1" placeholder="Message {{ (channel.name if channel else 'general').replace('-', ' ').title() }}… (Shift+Enter for newline)"
                   class="flex-1 bg-glitch-surface border border-glitch-border rounded-glitch px-4 py-2.5 text-sm text-glitch-text placeholder-glitch-muted focus:outline-none focus:border-glitch-accent resize-none"></textarea>
         <button type="submit" id="send-btn" class="px-5 py-2.5 text-sm rounded-glitch bg-glitch-accent text-white hover:opacity-90 shrink-0">Send</button>
         <button type="button" id="stop-btn" class="hidden px-5 py-2.5 text-sm rounded-glitch bg-glitch-error text-white hover:opacity-90 shrink-0">Stop</button>
@@ -121,7 +121,7 @@ function appendMessage(m){
 function fireNotification(m){
     try{
         if('Notification' in window && Notification.permission==='granted'){
-            new Notification('{{ theme.app_name }} · #'+channelId, { body: (m.content||'').slice(0,180) });
+            new Notification('{{ theme.app_name }} · '+channelId, { body: (m.content||'').slice(0,180) });
         }
     }catch(e){}
 }

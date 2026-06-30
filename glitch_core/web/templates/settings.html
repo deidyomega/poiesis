@@ -20,7 +20,7 @@
                 <tbody>
                 {% for c in channel_list %}
                     <tr class="border-t border-glitch-border">
-                        <td class="px-3 py-2"><a href="/c/{{ c.id }}" class="text-glitch-accent hover:underline"># {{ c.name.replace('-',' ').title() }}</a></td>
+                        <td class="px-3 py-2"><a href="/c/{{ c.id }}" class="text-glitch-accent hover:underline">{{ c.name.replace('-',' ').title() }}</a></td>
                         <td class="px-3 py-2 text-glitch-muted">{{ c.model or "default" }}</td>
                         <td class="px-3 py-2 text-glitch-muted">{{ c.soul_path or "—" }}</td>
                     </tr>
@@ -36,7 +36,7 @@
         <ul class="space-y-1 text-sm">
             {% for s in schedules %}
             <li class="rounded-glitch border border-glitch-border px-3 py-2">
-                <span class="text-glitch-text">#{{ s.channel_id }}</span>
+                <span class="text-glitch-text">{{ s.channel_id.replace('-',' ').title() }}</span>
                 <span class="text-glitch-muted">·
                     {% if s.kind == 'daily' %}daily {{ '%02d:%02d'|format(s.at_hour or 0, s.at_minute or 0) }} {{ s.tz }}{% else %}every {{ s.interval_seconds }}s{% endif %}
                 </span>
