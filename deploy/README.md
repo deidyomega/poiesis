@@ -25,7 +25,7 @@ This creates `~/.glitch/.env` (session secret, admin user + bcrypt hash), the SQ
 DB, the default theme, and the #general + #project-management channels with the 10am
 schedule. Then add to `~/.glitch/.env`:
 ```
-GLITCH_TZ=America/New_York               # so the PM nudge fires at YOUR 10am
+GLITCH_TZ=America/Phoenix                # so the PM nudge fires at YOUR 10am
 GLITCH_HOST=127.0.0.1                     # keep private; the tunnel reaches it
 GLITCH_PORT=8080
 ```
