@@ -104,7 +104,7 @@ async def stream(request: Request, agent_msg_id: str):
                 async with aclosing(
                     run_turn(
                         db=db, channel=channel, history=history, user_message=user_message,
-                        message_id=agent_msg_id, repo_root=str(env.repo_root),
+                        message_id=agent_msg_id, repo_root=str(env.repo_root), tz=env.tz,
                     )
                 ) as turn:
                     async for ev in turn:

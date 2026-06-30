@@ -80,7 +80,7 @@ async def _fire(db: Database, env: GlitchEnv, schedule: dict) -> None:
             async with aclosing(
                 run_turn(
                     db=db, channel=channel, history=history, user_message=schedule["prompt"],
-                    message_id=None, repo_root=str(env.repo_root), max_turns=8,
+                    message_id=None, repo_root=str(env.repo_root), max_turns=8, tz=env.tz,
                 )
             ) as turn:
                 async for ev in turn:

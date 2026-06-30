@@ -1,8 +1,10 @@
-"""System-prompt assembly: channel soul + remembered facts + tool guidance."""
+"""System-prompt assembly: channel soul + remembered facts + tool guidance + the clock."""
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 DEFAULT_SOUL = (
     "You are Glitch, a single-user self-hosted personal AI. You are direct, "
@@ -20,12 +22,24 @@ TOOL_GUIDANCE = """\
 - Don't narrate tool calls with filler; just do the work and summarize the result."""
 
 
-def build_system_prompt(soul: str | None, memories: list[dict[str, Any]]) -> str:
+def _current_time(tz: str) -> str:
+    try:
+        zone = ZoneInfo(tz)
+    except (ZoneInfoNotFoundError, ValueError):
+        zone = ZoneInfo("UTC")
+    return datetime.now(zone).strftime("%A, %B %-d, %Y at %-I:%M %p %Z")
+
+
+def build_system_prompt(soul: str | None, memories: list[dict[str, Any]], tz: str = "UTC") -> str:
     parts: list[str] = [(soul or "").strip() or DEFAULT_SOUL]
     if memories:
         lines = "\n".join(f"- {m['content']}" for m in memories)
         parts.append(f"## What you remember about the user\n{lines}")
     parts.append(TOOL_GUIDANCE)
+    # Volatile, so it goes last (keeps the stable prefix cache-friendly).
+    parts.append(
+        f"## Right now\nIt is {_current_time(tz)}. Factor the time of day into your replies."
+    )
     return "\n\n".join(parts)
 
 

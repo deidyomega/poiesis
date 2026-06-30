@@ -55,10 +55,11 @@ async def run_turn(
     repo_root: str | Path,
     should_cancel: Callable[[], bool] | None = None,
     max_turns: int = 40,
+    tz: str = "UTC",
 ) -> AsyncIterator[dict[str, Any]]:
     soul = _read_soul(repo_root, channel.get("soul_path"))
     memories = await store.list_memories(db)
-    system_prompt = build_system_prompt(soul, memories)
+    system_prompt = build_system_prompt(soul, memories, tz=tz)
     server = build_mcp_server(db, channel["id"], message_id, repo_root)
 
     if channel.get("allowed_tools"):
