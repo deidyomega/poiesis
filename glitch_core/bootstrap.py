@@ -102,6 +102,19 @@ async def bootstrap(env: GlitchEnv | None = None, *, admin_password: str | None 
         kind="daily", at_hour=10, at_minute=0, tz=env.tz, notify=True,
     )
 
+    # Chat channels (specialized pipelines layer on later). Chat + memory only —
+    # no self-mod/deploy tools, so they can't touch the app's own code.
+    chat_tools = [
+        "mcp__glitch__remember", "mcp__glitch__recall", "mcp__glitch__write_journal",
+    ]
+    for cid, soul in (("feature", "souls/feature.md"), ("bug", "souls/bug.md"),
+                      ("analytics", "souls/analytics.md")):
+        if await store.get_channel(db, cid) is None:
+            await store.upsert_channel(
+                db, cid, cid, soul_path=soul, model="sonnet", allowed_tools=chat_tools
+            )
+            logger.info("Seeded #%s channel", cid)
+
     if (
         gitops.has_git(env.repo_root)
         and await store.get_setting(db, "last_green_sha") is None

@@ -48,7 +48,9 @@ class ThemeMiddleware(BaseHTTPMiddleware):
         if force_refresh:
             request.app.state._theme_bust = False
         theme = await self._get_theme(force_refresh=force_refresh)
-        nav = self.page_engine.get_nav_items() if self.page_engine else {}
         self.templates.env.globals["theme"] = theme
-        self.templates.env.globals["nav"] = nav
+        try:
+            self.templates.env.globals["channels"] = await store.list_channels(self.db)
+        except Exception:
+            self.templates.env.globals["channels"] = []
         return await call_next(request)

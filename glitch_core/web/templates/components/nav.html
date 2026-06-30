@@ -8,44 +8,40 @@
             <span class="text-2xl">{{ theme.app_icon }}</span>
             <span>{{ theme.app_name }}</span>
         </a>
-        <!-- Close button (mobile only) -->
         <button onclick="toggleSidebar()" class="lg:hidden p-1 text-glitch-muted hover:text-glitch-text">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
         </button>
     </div>
 
-    <!-- Navigation -->
-    <nav class="flex-1 overflow-y-auto p-3 space-y-4">
-        {% set section_labels = {"core": "Core", "system": "System", "custom": "Custom"} %}
-        {% for section in ["core", "system", "custom"] %}
-            {% if section in nav and nav[section] %}
-            <div>
-                <h3 class="text-xs font-semibold uppercase tracking-wider text-glitch-muted px-2 mb-1">
-                    {{ section_labels.get(section, section|title) }}
-                </h3>
-                <ul class="space-y-0.5">
-                    {% for entry in nav[section] %}
-                    <li>
-                        <a href="{{ entry.meta.route_prefix or '/' + entry.module_name.replace('glitch_page_', '') }}"
-                           onclick="if(window.innerWidth < 1024) toggleSidebar()"
-                           class="flex items-center gap-2 px-2 py-1.5 rounded-glitch text-sm text-glitch-text hover:bg-glitch-border/50 hover:text-glitch-accent transition-colors">
-                            {% if entry.meta.icon %}<span>{{ entry.meta.icon }}</span>{% endif %}
-                            <span>{{ entry.meta.title }}</span>
-                            {% if entry.meta.badge_count is not none and entry.meta.badge_count > 0 %}
-                            <span class="ml-auto bg-glitch-accent text-white text-xs px-1.5 py-0.5 rounded-full">{{ entry.meta.badge_count }}</span>
-                            {% endif %}
-                        </a>
-                    </li>
-                    {% endfor %}
-                </ul>
-            </div>
-            {% endif %}
-        {% endfor %}
+    <!-- Channels -->
+    <nav class="flex-1 overflow-y-auto p-3">
+        <h3 class="text-xs font-semibold uppercase tracking-wider text-glitch-muted px-2 mb-1">Chats</h3>
+        <ul class="space-y-0.5">
+            {% set path = request.url.path if request else '/' %}
+            {% for c in channels %}
+            {% set href = '/c/' + c.id %}
+            {% set active = (path == href) or (path == '/' and c.id == 'general') %}
+            <li>
+                <a href="{{ href }}"
+                   onclick="if(window.innerWidth < 1024) toggleSidebar()"
+                   class="flex items-center gap-2 px-2 py-1.5 rounded-glitch text-sm transition-colors
+                          {% if active %}bg-glitch-accent/20 text-glitch-accent font-medium{% else %}text-glitch-text hover:bg-glitch-border/50 hover:text-glitch-accent{% endif %}">
+                    <span># {{ c.name.replace('-', ' ').title() }}</span>
+                </a>
+            </li>
+            {% endfor %}
+        </ul>
     </nav>
 
-    <!-- Footer -->
+    <!-- Footer: Settings -->
     <div class="p-3 border-t border-glitch-border">
-        <div class="text-xs text-glitch-muted px-2">v0.2.0</div>
+        {% set on_settings = request and request.url.path == '/settings' %}
+        <a href="/settings"
+           class="flex items-center gap-2 px-2 py-1.5 rounded-glitch text-sm transition-colors
+                  {% if on_settings %}bg-glitch-accent/20 text-glitch-accent{% else %}text-glitch-muted hover:bg-glitch-border/50 hover:text-glitch-accent{% endif %}">
+            <span>⚙️</span><span>Settings</span>
+        </a>
+        <div class="mt-1 text-xs text-glitch-muted px-2">v0.2.0</div>
     </div>
 </aside>
 
@@ -54,12 +50,7 @@ function toggleSidebar() {
     const sidebar = document.getElementById('sidebar');
     const overlay = document.getElementById('sidebar-overlay');
     const isOpen = !sidebar.classList.contains('-translate-x-full');
-    if (isOpen) {
-        sidebar.classList.add('-translate-x-full');
-        overlay.classList.add('hidden');
-    } else {
-        sidebar.classList.remove('-translate-x-full');
-        overlay.classList.remove('hidden');
-    }
+    if (isOpen) { sidebar.classList.add('-translate-x-full'); overlay.classList.add('hidden'); }
+    else { sidebar.classList.remove('-translate-x-full'); overlay.classList.remove('hidden'); }
 }
 </script>
