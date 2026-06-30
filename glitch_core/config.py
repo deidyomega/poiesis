@@ -27,9 +27,8 @@ class GlitchEnv(BaseSettings):
         extra="ignore",
     )
 
-    # Model access. If unset, the Claude Agent SDK falls back to the local
-    # `claude` CLI's own auth (useful in dev where you're already logged in).
-    anthropic_api_key: str | None = None
+    # Model auth is handled by the `claude` CLI directly (claude.ai login, or a
+    # raw ANTHROPIC_API_KEY in the environment). Glitch does not manage it.
 
     # Single-user auth.
     admin_username: str = "admin"

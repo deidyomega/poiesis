@@ -6,19 +6,16 @@ the SQLite DB on the serving loop.
 
 from __future__ import annotations
 
-import os
-
 from glitch_core.config import GlitchEnv
 from glitch_core.db import Database
 from glitch_core.web.app import create_app
 
 
 def make_app():
+    # Auth is whatever the `claude` CLI already uses: a claude.ai login
+    # (subscription — cheaper) or, if you'd rather pay per token, a raw
+    # ANTHROPIC_API_KEY exported in the environment. We don't force either.
     env = GlitchEnv()
-    # Bridge our prefixed key to what the Claude Agent SDK / claude CLI expects,
-    # so a headless server authenticates without a separate `claude login`.
-    if env.anthropic_api_key:
-        os.environ.setdefault("ANTHROPIC_API_KEY", env.anthropic_api_key)
     db = Database(env.db_path)
     return create_app(db, env)
 

@@ -24,12 +24,17 @@ This creates `~/.glitch/.env` (session secret, admin user + bcrypt hash), the SQ
 DB, the default theme, and the #general + #project-management channels with the 10am
 schedule. Then add to `~/.glitch/.env`:
 ```
-GLITCH_ANTHROPIC_API_KEY=sk-ant-...      # or run `claude login` once as this user
 GLITCH_TZ=America/New_York               # so the PM nudge fires at YOUR 10am
 GLITCH_HOST=127.0.0.1                     # keep private; Caddy faces the internet
 GLITCH_PORT=8080
 ```
 Re-running `glitch bootstrap` is always safe (idempotent).
+
+**Model auth** is handled by the `claude` CLI, two ways:
+- **claude.ai login (recommended, cheaper):** run `claude login` once as this user — uses
+  your subscription. Do **not** set `ANTHROPIC_API_KEY`, or it takes precedence and bills
+  per token.
+- **API key:** `export ANTHROPIC_API_KEY=sk-ant-...` (metered billing).
 
 ## 3. Reverse proxy (TLS)
 ```bash
