@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign in — {{ theme.app_name }}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background: {{ theme.colors.bg }}; color: {{ theme.colors.text }};
+               font-family: {{ theme.font_family }}; }
+        .card { background: {{ theme.colors.surface }}; border: 1px solid {{ theme.colors.border }}; }
+        .field { background: {{ theme.colors.bg }}; border: 1px solid {{ theme.colors.border }};
+                 color: {{ theme.colors.text }}; }
+        .field:focus { outline: none; border-color: {{ theme.colors.accent }}; }
+        .btn { background: {{ theme.colors.accent }}; color: #fff; }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+    <form method="post" action="/login" class="card rounded-xl p-8 w-full max-w-sm space-y-4">
+        <div class="text-center mb-2">
+            <div class="text-4xl mb-2">{{ theme.app_icon }}</div>
+            <h1 class="text-xl font-semibold">{{ theme.app_name }}</h1>
+        </div>
+        {% if error %}
+        <div class="text-sm rounded-lg px-3 py-2" style="background: {{ theme.colors.error }}22; color: {{ theme.colors.error }};">
+            {{ error }}
+        </div>
+        {% endif %}
+        <input class="field w-full rounded-lg px-3 py-2 text-sm" type="text" name="username"
+               placeholder="Username" autocomplete="username" autofocus required>
+        <input class="field w-full rounded-lg px-3 py-2 text-sm" type="password" name="password"
+               placeholder="Password" autocomplete="current-password" required>
+        <button class="btn w-full rounded-lg px-3 py-2 text-sm font-medium hover:opacity-90" type="submit">
+            Sign in
+        </button>
+    </form>
+</body>
+</html>

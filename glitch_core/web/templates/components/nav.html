@@ -43,17 +43,9 @@
         {% endfor %}
     </nav>
 
-    <!-- Footer: Theme Picker -->
+    <!-- Footer -->
     <div class="p-3 border-t border-glitch-border">
-        <button hx-get="/theme/picker"
-                hx-target="#modal-content"
-                hx-trigger="click"
-                onclick="document.getElementById('modal-container').classList.remove('hidden')"
-                class="w-full flex items-center gap-2 px-2 py-1.5 rounded-glitch text-sm text-glitch-muted hover:bg-glitch-border/50 hover:text-glitch-accent transition-colors">
-            <span>🎨</span>
-            <span>Theme</span>
-        </button>
-        <div class="mt-1 text-xs text-glitch-muted px-2">v0.1.0</div>
+        <div class="text-xs text-glitch-muted px-2">v0.2.0</div>
     </div>
 </aside>
 

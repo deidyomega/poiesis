@@ -33,7 +33,9 @@
                     <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-glitch-accent/20 text-glitch-accent">
                         {{ log.get('agent_id', 'router') }}
                     </span>
-                    {% if log.get('log_type') == 'sub_agent' %}
+                    {% if log.get('log_type') == 'error' %}
+                    <span class="text-xs px-2 py-0.5 rounded-full bg-glitch-error/20 text-glitch-error">error</span>
+                    {% elif log.get('log_type') == 'sub_agent' %}
                     <span class="text-xs px-2 py-0.5 rounded-full bg-glitch-warning/20 text-glitch-warning">sub-agent</span>
                     {% endif %}
                     {% if log.get('task_id') %}

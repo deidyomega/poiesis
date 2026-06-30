@@ -175,7 +175,21 @@
     </details>
     {% endif %}
 
-    {% if not exchange and not history %}
+    {% if log.get('log_type') == 'error' %}
+    <h2 class="text-lg font-semibold text-glitch-error mb-3">Error</h2>
+    <div class="bg-glitch-surface border border-glitch-error/30 rounded-glitch p-4 mb-6">
+        <div class="flex items-center gap-2 mb-3">
+            <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-glitch-error/20 text-glitch-error">{{ log.get('error_type', 'Unknown') }}</span>
+        </div>
+        <p class="text-sm text-glitch-text mb-3">{{ log.get('error_message', 'No error message available.') }}</p>
+        {% if log.get('traceback') %}
+        <details open>
+            <summary class="text-xs font-semibold text-glitch-muted cursor-pointer mb-1">Full Traceback</summary>
+            <pre class="text-xs text-glitch-muted bg-glitch-bg rounded-glitch p-3 overflow-x-auto max-h-96 overflow-y-auto whitespace-pre-wrap">{{ log.traceback }}</pre>
+        </details>
+        {% endif %}
+    </div>
+    {% elif not exchange and not history %}
     <div class="bg-glitch-surface border border-glitch-border rounded-glitch p-4">
         <p class="text-sm text-glitch-muted">No message trace available for this run.</p>
         {% if log.get('all_messages') %}

@@ -7,6 +7,21 @@
 - [ ] **Compaction pipeline gets full message context.** The compaction summarization agent should receive the journal's `context_messages` alongside the observation text. This gives the LLM the surrounding conversation when deciding importance, confidence, and how to phrase the memory. Update `build_compaction_prompt()` in `prompts.py` to include context.
 - [ ] **Compaction agent gets all existing memories in its system prompt.** Currently loaded as context in the per-batch prompt, but should be more prominent — the agent needs to know what already exists to avoid duplicates and to merge/update intelligently.
 
+## High Priority — Daily Log (Temporal Grounding)
+- [ ] **Daily log documents.** New Firestore collection `/daily_logs/{YYYY-MM-DD}`. Each doc accumulates a narrative summary of the day's conversations. Appended to every ~3 hours by a summarizer task. Gives the AI a sense of "today" vs "yesterday." The daily log is NOT raw messages or journal entries — it's a processed narrative diary.
+- [ ] **3-hour digest task.** New daemon task (like compaction_scheduler). Every 3 hours, reads recent messages across all sessions since last digest, sends to a summarizer agent with prompt: "Write a brief diary entry for what happened in the last few hours." Appends the result to today's daily log doc. Lightweight — a few sentences per digest, not a full compaction.
+- [ ] **Daily log in the system prompt.** The dynamic system prompt includes today's log and a condensed version of yesterday's. Fresh day = empty log = AI knows nothing has happened yet today. Prevents stale context bleeding ("go get ramen" when that was last night). Format: `## Today (Friday, April 4)\n{today_log}\n\n## Yesterday\n{yesterday_summary}`.
+- [ ] **Day rollover.** Configurable timezone in `/meta/project` (default UTC). At rollover, today's log closes. Yesterday's log gets condensed into a shorter summary (one paragraph). The full version stays in Firestore for reference. Weekly summaries could be generated from daily logs.
+- [ ] **Daily log → compaction pipeline.** Daily logs feed into the existing compaction pipeline as source material alongside journals. The compaction pipeline extracts lasting facts from daily logs into core_memories. Daily logs are the short-term narrative; core_memories are the long-term knowledge.
+- [ ] **Relationship to existing journal.** The `write_journal` tool captures in-the-moment observations (micro). The daily log captures the narrative arc of the day (macro). Both feed compaction. The journal is "what the AI noticed" — the daily log is "what happened."
+
+## High Priority — Memory Decay & Reinforcement (Forgetting Curve)
+- [ ] **Memory strength model.** Each core memory gets a `strength` score based on recency, frequency, and importance. Unreinforced memories fade over time (exponential decay, ~30 day half-life). Frequently referenced memories stay strong. Formula: `strength = importance * log2(access_count + 1) * e^(-λ * days_since_last_access)`. New fields on CoreMemory: `access_count: int`, `last_accessed: datetime`, `strength: float`.
+- [ ] **Reinforcement detection.** When the compaction pipeline encounters a journal entry that overlaps an existing core memory, that's a reinforcement — bump `access_count` and reset `last_accessed` instead of creating a duplicate. The merge pass already detects related memories; extend it to distinguish "reinforce existing" from "merge into new."
+- [ ] **Strength-aware memory loading.** Instead of loading all memories equally into the system prompt, sort by `current_strength()` computed on-the-fly. Options: hard cutoff (top N), soft fade (weak memories prefixed with "(faint memory)"), or tiered (strong in system prompt, weak available via a `recall` tool that the AI searches on demand — like needing a moment to remember).
+- [ ] **Dormancy, not deletion.** Faded memories go dormant (below a strength threshold) but are never deleted. A single reinforcement brings them back. Just like human memory — you haven't forgotten, you just need a trigger.
+- [ ] **Tunable decay parameters.** Half-life, decay rate, reinforcement boost, and strength threshold should be configurable in `/meta/compaction_config`. Different instances might want different memory persistence (a daily companion vs a work assistant).
+
 ## High Priority — Chat UX: Thinking + Tool Trace
 - [ ] **Structured message content with collapsible sections.** Currently agent responses are flat text. They should be structured as segments: thinking (collapsible), visible text, tool calls (collapsible with args/results), more thinking (collapsible), final text. The PydanticAI message trace already has this data (`all_messages` with `part_kind` of `text`, `tool-call`, `tool-return`). Instead of storing a flat `content` string, store the full trace as structured segments in the message's `metadata.segments` field.
 - [ ] **Chat template renders segments.** Each segment type has its own rendering: `text` → rendered as markdown (visible). `thinking` → collapsible `<details>` block, dimmed, labeled "Thinking...". `tool-call` → collapsible block showing tool name + args summary. `tool-return` → included in the tool-call collapsible with the result. The streaming flow: text streams in visibly → thinking dots during tool execution → tool call block appears (collapsed) → more text streams in.
@@ -14,13 +29,12 @@
 - [ ] **Typewriter effect works per-segment.** Each visible text segment gets its own typewriter animation. Collapsible sections appear instantly (no animation needed — they're hidden by default).
 
 ## High Priority — Ouroboros Self-Debugging (Agent Introspection)
-- [ ] **`create_page` and `create_tool` return detailed results.** Currently returns "success" or a vague error. Should return the full SafeFileWriter pipeline trace: which validation stages passed/failed, import errors with full traceback, the actual stdout/stderr from the subprocess import test. The `PromotionResult` model already has `validation_failures` — the tool response should format ALL of them, not just the first.
-- [ ] **New builtin tool: `system_inspect`.** Gives agents visibility into the running system. Methods: `list_routes()` — all registered FastAPI routes, `list_loaded_modules()` — what's imported, `check_template(name)` — verify a template is loadable, `get_recent_errors(n)` — last N errors from the daemon log (ring buffer in memory). This is READ-ONLY — no system modification.
-- [ ] **New builtin tool: `system_test`.** Agent can make HTTP requests to its own web server to verify routes work. `test_route(method, path)` → returns status code + response body (truncated). Essentially `httpx.get("http://localhost:8080/my_page")` from within the daemon. Lets the agent verify its create_page output without the user having to check.
-- [ ] **Pre-flight checks before create_page.** Before writing files, verify: required imports are available (`httpx`, etc.), template base exists, no route prefix conflicts with existing pages. Return issues as warnings before attempting promotion.
-- [ ] **Post-promotion verification.** After `create_page` succeeds, automatically call the new route and report whether it returns 200. If it 500s, include the error in the tool response so the agent can fix and retry.
-- [ ] **create_page/create_tool return structured feedback.** Instead of flat strings, return a structured result the agent can parse: `{"success": true, "route_registered": "/comfyui", "validation": {"syntax": "passed", "import": "passed", "ast_scan": "passed"}, "test_request": {"status": 200}}` or `{"success": false, "validation": {"syntax": "passed", "import": "failed: No module named 'httpx'"}, "fixable": true}`.
-- [ ] **Error log ring buffer.** Daemon keeps last 100 errors in memory (not Firestore). The `system_inspect` tool can read them. This gives agents access to runtime errors without needing Firestore reads or log file access.
+- [x] **`create_page` and `create_tool` return detailed results.** Structured feedback with all validation failures grouped by stage, fixability flags, rollback SHA, and artifact path. `_format_promotion_result()` shared helper.
+- [x] **`system_inspect` builtin tool.** Methods: `recent_errors(n)`, `list_routes()`, `check_template(name)`, `test_route(path)`. Read-only introspection into the running system.
+- [x] **Post-promotion HTTP verification.** `create_page` auto-tests the route after promotion — returns status code and error body if 500.
+- [x] **Error ring buffer.** Daemon keeps last 100 errors in memory. `system_inspect(recent_errors)` reads them. Also written to Firestore as error-type run logs.
+- [x] **write_page collects ALL validation failures.** No more early returns — syntax, page patterns, and template errors all reported together.
+- [ ] **Pre-flight checks before create_page.** Before writing files, verify: required imports are available, template base exists, no route prefix conflicts with existing pages. Return issues as warnings before attempting promotion.
 - [ ] **Workspace file verification.** After `workspace_write`, the agent should be able to verify the file exists and read it back. The workspace tools already support this (`workspace_read`), but the agent needs prompting to chain: write → read back → verify.
 
 ## High Priority — Worker/Workspace Locality
@@ -28,11 +42,21 @@
 - [ ] **Workspace awareness across workers (future).** Long-term options: (1) workspace files stored in Firestore as blobs (simple but size limits), (2) workspace sync over Tailscale between workers, (3) shared storage mount (NFS/S3). For now, worker pinning solves the immediate problem. Cross-worker workspace sync is a Phase 4+ feature.
 - [ ] **Worker capability in session display.** The chat header should show which worker/machine the session is running on so the user knows where their files live. e.g. "coder · macbook" vs "coder · aws-gpu".
 
-## High Priority — Architecture: Process Separation
-- [ ] **Separate FastAPI web server from the daemon process.** Currently both run in one process via `asyncio.gather`. A bad Ouroboros page promotion can crash FastAPI which kills the entire daemon (agent listener, workers, heartbeat, everything). Separation means: (1) Daemon process — agent listener, worker loop, heartbeat, compaction, reaper. The brain. Never affected by UI changes. (2) Web process — FastAPI/uvicorn. Hot-reloads pages. If it crashes, auto-restart without affecting the daemon. The web process is "just a client" that reads/writes Firestore, same as any other client.
-- [ ] **Inter-process communication for hot-reload.** After the daemon's SafeFileWriter promotes a page, the web process needs to know to call `PageEngine.reload_custom_pages()`. Solution: daemon writes a signal to Firestore (e.g. `/meta/reload_trigger` with a timestamp), web process watches it via `on_snapshot` and reloads when it changes. No direct IPC needed.
-- [ ] **`glitch start` launches both processes.** Could use subprocess, or `glitch start` launches daemon and `glitch start --web-only` launches just the web server. For development, run them separately. For production, `glitch start` manages both (or systemd manages them as separate services).
-- [ ] **Each process owns its own Firestore client.** No shared state between processes. Both connect independently. Doubles Firestore connections but they're cheap and stateless.
+## High Priority — Architecture: Process Separation & Unified Worker Model
+**Core principle:** The webapp is "just another client." It reads/writes Firestore, renders HTML. It does NOT run agents, execute tools, or do compaction. Every running daemon instance is a worker.
+
+- [ ] **Separate web server from daemon.** Web process = FastAPI/uvicorn, serves pages, reads Firestore. Daemon process = agent listener, tool execution, background tasks. If the web crashes, the brain keeps running. `glitch start` launches both; `glitch start --web-only` and `glitch start --daemon-only` for separate control.
+- [ ] **Reload signal via Firestore.** After SafeFileWriter promotes a page, daemon writes to `/meta/reload_trigger` with timestamp. Web process watches via `on_snapshot` and calls `reload_custom_pages()`. No direct IPC needed.
+- [ ] **Unified worker model.** Collapse "daemon" and "worker" into one concept. Every running instance registers as a worker with capabilities derived from its `.env`:
+  - Hardware: `gpu`, `local`, `tailnet` (existing)
+  - LLM access: `llm:anthropic`, `llm:google`, `llm:openai`, `llm:ollama` (derived from which API keys are set)
+  - Baseline: `firestore` (every instance has this)
+- [ ] **Singleton tasks as claimable docs.** Compaction, reaper, daily log digest, reminder scheduler — all become scheduled task docs in Firestore with `required_capabilities`. Any worker with matching capabilities can claim. First to claim wins (reuse existing worker claim protocol). No leader election needed.
+  - Compaction: requires `llm:<compaction_model_provider>`
+  - Reaper: requires `firestore` only
+  - Daily log digest: requires `llm:<digest_model_provider>`
+  - Reminder scheduler: requires `firestore` only
+- [ ] **Each process owns its own Firestore client.** No shared state. Both connect independently.
 
 ## High Priority — Infrastructure
 - [ ] Proper cron parsing for compaction scheduler (currently interval-based)
@@ -65,13 +89,13 @@
 - [ ] **Bootstrap should set up systemd/launchd service** for daemon auto-start on boot.
 
 ## High Priority — Stop Generation
-- [ ] **Stop/cancel button for in-progress generation.** Client writes `cancelled: true` on the user message doc that triggered the generation. The daemon checks for this flag during the streaming loop (every N chunks or via a separate lightweight watcher). When detected: break out of `stream_text()`, finalize the message with whatever content has been streamed so far, set `cancelled: true` on the agent response message, skip the follow-up `run()`. The client shows a "Stopped" indicator on the message.
-- [ ] **Chat UI stop button.** Replace the Send button with a Stop button while a message is streaming (detect via `streaming: true` on the latest agent message). Stop button writes `cancelled: true` to the user message that triggered the response. Button reverts to Send when streaming ends or cancellation completes.
-- [ ] **Client integration doc update.** Document the cancel protocol: write `cancelled: true` to the user message doc, daemon stops generation. Add to `docs/client_integration.md` so desktop companion and mobile apps can implement stop buttons.
+- [x] **Stop/cancel button for in-progress generation.** Any client writes `cancel_generation: true` on the session doc. Daemon checks during each flush cycle (~600ms). When detected: breaks streaming, finalizes with partial content + `cancelled: true`, clears the flag. Firestore rules allow clients to update only the `cancel_generation` field on sessions.
+- [x] **Chat UI stop button.** Send button swaps to red Stop button while streaming. Stop writes `cancel_generation: true` to the session doc via Firebase client SDK. Reverts to Send when `streaming: false` arrives. Cancelled messages show "Generation stopped" badge.
+- [ ] **Client integration doc update.** Document the cancel protocol: write `cancel_generation: true` to the session doc. Add to `docs/client_integration.md` so desktop companion and mobile apps can implement stop buttons.
 
 ## High Priority — Chat Session Management
-- [ ] **Delete session.** Button on the chat sidebar per session. Deletes the session doc + all messages/sub_tasks/run_logs subcollections. Redirects to `/chat` (which opens or creates the default session). Use Firebase CLI batch delete pattern or iterate subcollections. HTMX confirm modal before deleting.
-- [ ] **Clear session history.** "Clear messages" button in the chat header. Keeps the session alive (same agent, same session ID) but deletes all messages in the subcollection. Fresh context window without losing the session. Useful when the agent gets "stuck" on a concept from old messages.
+- [x] **Delete session.** Implemented in chat.py with subcollection cleanup + sidebar button.
+- [x] **Clear session history.** "Clear" button in chat header, deletes messages + run_logs, keeps session alive.
 
 ## High Priority — Network Resilience
 - [ ] **Graceful handling of network disconnects.** When the laptop sleeps or ISP drops, the `on_snapshot` gRPC streams die. The Firestore Python SDK's `on_snapshot` runs in background threads and throws exceptions that aren't caught cleanly. Needed: (1) wrap `on_snapshot` callbacks with error handlers that log but don't crash, (2) detect disconnection (consecutive errors or gRPC UNAVAILABLE status), (3) attempt re-subscription after a backoff delay (5s, 10s, 30s, 60s), (4) the daemon should never exit due to a network error — only due to explicit shutdown. The agent listener, worker loop, and agent config watcher all use `on_snapshot` and all need this treatment.
@@ -123,3 +147,7 @@
 - [x] Custom page validation (TemplateResponse signature, await, Jinja2Templates instance)
 - [x] Hot-reload router mounting for custom pages
 - [x] TemplateNotFound → 404 handler for deleted custom pages
+- [x] Chat UX: Thinking + Tool Trace (structured segments with collapsible thinking/tool calls)
+- [x] Stop generation (cancel button, session-level protocol, any-client compatible)
+- [x] Error surfacing in chat (type, message, traceback link) + error run logs
+- [x] Ouroboros self-debugging (structured feedback, system_inspect, post-promotion verification, error ring buffer)

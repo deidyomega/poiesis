@@ -1,302 +1,88 @@
+"""Idempotent first-run setup: ~/.glitch, .env scaffold, SQLite seed."""
+
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
-import time
-from datetime import datetime
+import secrets
 from pathlib import Path
 
-from google.api_core import exceptions as gcp_exceptions
-from google.cloud.firestore_admin_v1 import FirestoreAdminClient
-from google.cloud.firestore_admin_v1.types import Database
-from google.oauth2 import service_account
-
-from glitch_core.config import GLITCH_HOME, GlitchEnv, get_firestore_client, load_yaml_config
-from glitch_core.schemas import CompactionConfig, FeatureFlags, ProjectMeta
+from glitch_core import gitops, store
+from glitch_core.config import ENV_FILE, GLITCH_HOME, GlitchEnv
+from glitch_core.db import Database
+from glitch_core.migrations.runner import run_migrations
+from glitch_core.web.auth import hash_password
 from glitch_core.web.theming import PRESET_THEMES
 
 logger = logging.getLogger(__name__)
 
-FIRESTORE_RULES = """\
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    // Single-tenant rules — network security (Tailscale) is the perimeter.
-    // Firebase Auth enforcement is on the roadmap.
-    //
-    // The daemon uses Admin SDK which bypasses all rules.
-    // Browser JS and external clients (desktop companion, mobile) use the
-    // client SDK and are governed by these rules.
+DEFAULT_SOUL = """\
+# Glitch — general
 
-    // Sessions: clients can create sessions and read them
-    match /sessions/{sessionId} {
-      allow read: if true;
-      allow create: if true;
-      allow update: if false;  // Only daemon updates session metadata
-      allow delete: if false;
+You are Glitch, a single-user self-hosted personal AI living in a web app you can
+modify. You are direct, technical but not condescending, and you remember context
+across conversations.
 
-      // Messages: the pub/sub bus — clients write user messages, read all
-      match /messages/{messageId} {
-        allow read: if true;
-        allow create: if true;   // Clients write user messages
-        allow update: if false;  // Only daemon updates (streaming content)
-        allow delete: if false;
-      }
-
-      match /sub_tasks/{taskId} {
-        allow read: if true;
-        allow write: if false;
-      }
-
-      match /run_logs/{logId} {
-        allow read: if true;
-        allow write: if false;
-      }
-    }
-
-    // Agents: read-only for clients (managed via web UI -> Admin SDK)
-    match /agents/{agentId} {
-      allow read: if true;
-      allow write: if false;
-    }
-
-    // Meta: read-only for clients
-    match /meta/{docId} {
-      allow read: if true;
-      allow write: if false;
-    }
-
-    // Everything else: deny from browser/clients
-    match /{document=**} {
-      allow read, write: if false;
-    }
-  }
-}
-"""
-
-DEFAULT_SOUL = """# Soul — Poiesis
-
-You are Poiesis, a personal AI assistant. You are direct, technical but not condescending, and you remember context from previous conversations.
-
-## Personality
-- Concise and helpful. Don't over-explain unless asked.
-- Honest about uncertainty. Never fabricate memories or facts.
-- Proactive about offering relevant context from your memory.
-- Able to delegate complex tasks to specialized sub-agents when needed.
-
-## Directives
-- Always check your core memories for relevant context before responding.
-- Log interesting observations to your journal during conversations.
-- When a task requires code generation, research, or system administration, delegate to the appropriate sub-agent.
-- Never pretend to remember something you don't. If a memory doesn't exist, say so.
-- Respect the user's time. Be brief unless depth is requested.
+- When asked to change how this app works, edit your own code, verify it, then
+  request a deploy. A supervisor health-checks and rolls back automatically.
+- Keep replies tight. Don't narrate your tool use with filler.
 """
 
 
-def _ensure_firestore_database(env: GlitchEnv) -> None:
-    """Create the Firestore (default) database if it doesn't exist."""
-    creds = service_account.Credentials.from_service_account_file(
-        str(env.firebase_credentials)
-    )
-    client = FirestoreAdminClient(credentials=creds)
-    parent = f"projects/{env.firebase_project}"
-    db_name = f"{parent}/databases/(default)"
+def _merge_env(updates: dict[str, str]) -> None:
+    """Create/update ~/.glitch/.env, adding only missing keys (never clobber)."""
+    GLITCH_HOME.mkdir(parents=True, exist_ok=True)
+    existing: dict[str, str] = {}
+    if ENV_FILE.exists():
+        for line in ENV_FILE.read_text().splitlines():
+            if "=" in line and not line.strip().startswith("#"):
+                k, _, v = line.partition("=")
+                existing[k.strip()] = v
+    changed = False
+    for k, v in updates.items():
+        if k not in existing:
+            existing[k] = v
+            changed = True
+    if changed or not ENV_FILE.exists():
+        ENV_FILE.write_text("\n".join(f"{k}={v}" for k, v in existing.items()) + "\n")
+        logger.info("Wrote %s", ENV_FILE)
 
-    # Check if database already exists
-    try:
-        client.get_database(name=db_name)
-        logger.info("Firestore database already exists.")
-        return
-    except gcp_exceptions.NotFound:
-        pass
-    except gcp_exceptions.PermissionDenied:
-        # Service account can't even check — fall through to creation attempt
-        pass
 
-    logger.info("Firestore database not found — creating it now...")
-    try:
-        operation = client.create_database(
-            parent=parent,
-            database=Database(
-                location_id="nam5",  # US multi-region, free tier eligible
-                type_=Database.DatabaseType.FIRESTORE_NATIVE,
-            ),
-            database_id="(default)",
+async def bootstrap(env: GlitchEnv | None = None, *, admin_password: str | None = None) -> None:
+    env = env or GlitchEnv()
+
+    env_updates = {"GLITCH_SESSION_SECRET": secrets.token_urlsafe(48)}
+    env_updates["GLITCH_ADMIN_USERNAME"] = env.admin_username
+    if admin_password:
+        env_updates["GLITCH_ADMIN_PASSWORD_HASH"] = hash_password(admin_password)
+    _merge_env(env_updates)
+
+    db = Database(env.db_path)
+    await db.connect()
+    await run_migrations(db)
+
+    if await store.get_setting(db, "theme") is None:
+        await store.set_setting(db, "theme", PRESET_THEMES["default"].model_dump())
+        logger.info("Seeded default theme")
+
+    if await store.get_channel(db, "general") is None:
+        soul_rel = "souls/general.md"
+        soul_file = Path(env.repo_root) / soul_rel
+        if not soul_file.exists():
+            soul_file.parent.mkdir(parents=True, exist_ok=True)
+            soul_file.write_text(DEFAULT_SOUL)
+        await store.upsert_channel(
+            db, "general", "general", soul_path=soul_rel, cwd=str(env.repo_root)
         )
+        logger.info("Seeded #general channel")
 
-        # Poll until the long-running operation completes
-        logger.info("Waiting for database creation (this may take a minute)...")
-        result = operation.result(timeout=120)
-        logger.info("Firestore database created: %s", result.name)
+    if (
+        gitops.has_git(env.repo_root)
+        and await store.get_setting(db, "last_green_sha") is None
+    ):
+        sha = gitops.current_sha(env.repo_root)
+        if sha:
+            await store.set_setting(db, "last_green_sha", sha)
+            logger.info("Recorded last-green sha %s", sha[:8])
 
-    except gcp_exceptions.PermissionDenied:
-        logger.error(
-            "\n"
-            "╔══════════════════════════════════════════════════════════════╗\n"
-            "║  Could not create the Firestore database automatically.    ║\n"
-            "║  Your service account doesn't have permission.             ║\n"
-            "║                                                            ║\n"
-            "║  Create it manually (takes 30 seconds):                    ║\n"
-            "║  https://console.firebase.google.com/project/%s/firestore  ║\n"
-            "║                                                            ║\n"
-            "║  1. Click 'Create database'                                ║\n"
-            "║  2. Choose 'Native mode'                                   ║\n"
-            "║  3. Pick a location (nam5 for US)                          ║\n"
-            "║  4. Click 'Create'                                         ║\n"
-            "║  5. Re-run: glitch bootstrap                               ║\n"
-            "╚══════════════════════════════════════════════════════════════╝",
-            env.firebase_project,
-        )
-        raise SystemExit(1)
-
-    except gcp_exceptions.AlreadyExists:
-        logger.info("Firestore database already exists (race-safe).")
-
-
-async def bootstrap(env: GlitchEnv | None = None) -> None:
-    """Initialize Firestore with default documents for a fresh installation."""
-    if env is None:
-        env = GlitchEnv()
-
-    # Step 0: ensure the Firestore database exists
-    _ensure_firestore_database(env)
-
-    db = get_firestore_client(env)
-
-    logger.info("Bootstrapping Firestore for project: %s", env.firebase_project)
-
-    # 1. /meta/project
-    project_meta = ProjectMeta(
-        version="0.1.0",
-        schema_version=1,
-        firebase_project=env.firebase_project,
-        feature_flags=FeatureFlags(),
-    )
-    await db.collection("meta").document("project").set(project_meta.model_dump())
-    logger.info("Created /meta/project")
-
-    # 2. /agents/{id} — seed from glitch_core.yaml + default system prompts
-    from glitch_core.agents import DEFAULT_PROMPTS
-    config = load_yaml_config()
-
-    # Seed the router as an agent like any other — with default tools
-    from glitch_core.agents.builtin_tools import DEFAULT_ROUTER_TOOLS
-    router_data = config.router.model_dump()
-    router_data["system_prompt"] = DEFAULT_SOUL
-    router_data["output_type"] = "text"
-    router_data["tools"] = DEFAULT_ROUTER_TOOLS
-    router_data.pop("output_schema", None)
-    router_data["created_at"] = datetime.utcnow()
-    router_data["updated_at"] = datetime.utcnow()
-    await db.collection("agents").document("router").set(router_data)
-    logger.info("Created /agents/router (tools: %s)", DEFAULT_ROUTER_TOOLS)
-
-    # Seed each worker agent
-    for agent_cfg in config.agents:
-        agent_data = agent_cfg.model_dump()
-        # Inject default system prompt if not already set
-        if not agent_data.get("system_prompt"):
-            agent_data["system_prompt"] = DEFAULT_PROMPTS.get(agent_cfg.agent_id, "")
-        # Add output_type mapping from the old output_schema field
-        if not agent_data.get("output_type") or agent_data["output_type"] == "text":
-            type_map = {
-                "CodeArtifact": "code_artifact",
-                "ResearchResult": "research_result",
-                "CommandResult": "command_result",
-            }
-            old_schema = agent_data.pop("output_schema", None)
-            if old_schema and old_schema in type_map:
-                agent_data["output_type"] = type_map[old_schema]
-        agent_data.pop("output_schema", None)
-        # Default tools per agent
-        if not agent_data.get("tools"):
-            if agent_cfg.agent_id == "coder":
-                agent_data["tools"] = [
-                    "write_journal",
-                    "workspace_write", "workspace_read", "workspace_list",
-                    "workspace_run", "workspace_delete",
-                    "create_tool", "read_tool", "update_tool", "delete_tool", "list_tools",
-                    "create_page",
-                    "read_page", "update_page", "delete_page", "list_pages",
-                    "read_soul", "edit_soul",
-                ]
-            elif agent_cfg.agent_id == "researcher":
-                agent_data["tools"] = ["web_search", "write_journal"]
-            else:
-                agent_data["tools"] = ["write_journal"]
-        agent_data["created_at"] = datetime.utcnow()
-        agent_data["updated_at"] = datetime.utcnow()
-        await db.collection("agents").document(agent_cfg.agent_id).set(agent_data)
-        logger.info("Created /agents/%s", agent_cfg.agent_id)
-
-    # 3. /meta/compaction_config
-    compaction = CompactionConfig()
-    await db.collection("meta").document("compaction_config").set(compaction.model_dump())
-    logger.info("Created /meta/compaction_config")
-
-    # 5. /meta/theme
-    default_theme = PRESET_THEMES["default"]
-    await db.collection("meta").document("theme").set(default_theme.model_dump())
-    logger.info("Created /meta/theme")
-
-    # 6. Seed empty collections with placeholder docs
-    placeholder = {"_placeholder": True}
-    for collection_name in [
-        "sessions", "journals", "journals_archive", "core_memories",
-        "memories_deleted", "compaction_runs",
-        "workers", "theme_history",
-    ]:
-        await db.collection(collection_name).document("_placeholder").set(placeholder)
-        logger.info("Seeded %s with placeholder", collection_name)
-
-    # 7. Write ~/.glitch/config.json
-    config_json = GLITCH_HOME / "config.json"
-    config_json.write_text(json.dumps({
-        "firebase_project": env.firebase_project,
-        "version": "0.1.0",
-    }, indent=2))
-    logger.info("Wrote %s", config_json)
-
-    # 8. Write proper security rules + deploy via Firebase CLI
-    import subprocess
-    from glitch_core.config import find_firebase_bin
-    repo_root = Path(__file__).parent.parent
-
-    # Ensure firestore.rules has the production rules (nuke resets to deny-all)
-    rules_path = repo_root / "firestore.rules"
-    rules_path.write_text(FIRESTORE_RULES)
-    logger.info("Wrote firestore.rules")
-
-    firebase_bin = find_firebase_bin()
-    if firebase_bin:
-        try:
-            result = subprocess.run(
-                [firebase_bin, "deploy", "--only", "firestore"],
-                capture_output=True, text=True, timeout=120,
-                cwd=str(repo_root),
-            )
-            if result.returncode == 0:
-                logger.info("Deployed Firestore rules + indexes")
-            else:
-                logger.warning(
-                    "Firebase deploy failed (run manually: firebase deploy --only firestore)\n%s",
-                    result.stderr.strip(),
-                )
-        except Exception:
-            logger.warning("Could not deploy Firestore config — deploy manually")
-    else:
-        logger.warning("Firebase CLI not found — deploy rules + indexes manually: firebase deploy --only firestore")
-
-    db.close()
-    logger.info("Bootstrap complete.")
-
-
-def main() -> None:
-    """Entry point for `python -m glitch_core.bootstrap`."""
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-    asyncio.run(bootstrap())
-
-
-if __name__ == "__main__":
-    main()
+    await db.close()
+    logger.info("Bootstrap complete (db=%s)", env.db_path)
