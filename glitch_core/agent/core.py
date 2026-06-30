@@ -156,7 +156,7 @@ async def run_turn(
                                 str(x.get("text", "")) if isinstance(x, dict) else str(x)
                                 for x in res
                             )
-                        res = str(res)[:300]
+                        res = str(res).strip()[:300]
                         if seg:
                             seg["result_summary"] = res
                         yield {"type": "tool_result", "name": seg["name"] if seg else "?"}

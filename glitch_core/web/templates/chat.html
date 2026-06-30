@@ -89,8 +89,8 @@ function renderSegments(segs){
         else if(s.type==='thinking'){ if(!(s.content||'').trim()) continue; h += `<details class="seg-thinking"><summary>Thinking…</summary><pre>${esc(s.content)}</pre></details>`; }
         else if(s.type==='tool_call'){
             h += `<details class="seg-tool"><summary>🔧 ${esc(s.name)}</summary>`;
-            if(s.args_summary) h += `<div class="seg-label">Args</div><pre>${esc(s.args_summary)}</pre>`;
-            if(s.result_summary) h += `<div class="seg-label">Result</div><pre>${esc(s.result_summary)}</pre>`;
+            if((s.args_summary||'').trim()) h += `<div class="seg-label">Args</div><pre>${esc(s.args_summary)}</pre>`;
+            if((s.result_summary||'').trim()) h += `<div class="seg-label">Result</div><pre>${esc(s.result_summary)}</pre>`;
             h += `</details>`;
         }
     }
