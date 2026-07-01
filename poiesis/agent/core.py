@@ -107,6 +107,7 @@ async def run_turn(
     segments: list[dict[str, Any]] = []
     open_blocks: dict[int, dict[str, Any]] = {}
     argbuf: dict[int, str] = {}
+    idx_id: dict[int, str] = {}  # block index → tool_use id, to correlate result events
     tool_by_id: dict[str, dict[str, Any]] = {}
     content = ""
     usage: dict[str, Any] = {}
@@ -146,6 +147,7 @@ async def run_turn(
                         argbuf[idx] = ""
                         if cb.get("id"):
                             tool_by_id[cb["id"]] = seg
+                            idx_id[idx] = cb["id"]
                 elif et == "content_block_delta":
                     idx = e.get("index")
                     d = e.get("delta", {}) or {}
@@ -169,7 +171,8 @@ async def run_turn(
                     seg = open_blocks.get(idx)
                     if seg and seg["type"] == "tool_call":
                         seg["args_summary"] = argbuf.get(idx, "")[:300]
-                        yield {"type": "tool_call", "name": seg["name"], "args": seg["args_summary"]}
+                        yield {"type": "tool_call", "name": seg["name"],
+                               "args": seg["args_summary"], "id": idx_id.get(idx)}
 
             elif isinstance(msg, UserMessage):
                 blocks = msg.content if isinstance(msg.content, list) else []
@@ -185,7 +188,8 @@ async def run_turn(
                         res = str(res).strip()[:300]
                         if seg:
                             seg["result_summary"] = res
-                        yield {"type": "tool_result", "name": seg["name"] if seg else "?"}
+                        yield {"type": "tool_result", "name": seg["name"] if seg else "?",
+                               "id": b.tool_use_id, "result": res}
 
             elif isinstance(msg, ResultMessage):
                 u = getattr(msg, "usage", None)

@@ -192,9 +192,11 @@ async def stream(request: Request, agent_msg_id: str):
                     accumulated += ev["delta"]
                     yield _sse({"t": "text", "delta": ev["delta"]})
                 elif t == "tool_call":
-                    yield _sse({"t": "tool", "name": ev["name"]})
+                    yield _sse({"t": "tool", "name": ev["name"],
+                                "args": ev.get("args", ""), "id": ev.get("id")})
                 elif t == "tool_result":
-                    yield _sse({"t": "tool_result", "name": ev["name"]})
+                    yield _sse({"t": "tool_result", "name": ev["name"],
+                                "result": ev.get("result", ""), "id": ev.get("id")})
                 elif t == "error":
                     error_msg = ev["message"]
                     session_id = ev.get("session_id") or session_id

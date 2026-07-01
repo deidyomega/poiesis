@@ -101,7 +101,7 @@ const transcriptLink = (msgId, sid) => sid
 const known = id => id && (localIds.has(id) || document.querySelector(`[data-msg-id="${id}"]`));
 
 // Render one collapsed box for a run of consecutive thinking/tool steps.
-function renderWorkGroup(group){
+function renderWorkGroup(group, open){
     let inner='', toolNames=[];
     for(const s of group){
         if(s.type==='thinking'){
@@ -118,16 +118,16 @@ function renderWorkGroup(group){
     const uniq = [...new Set(toolNames)];
     const names = uniq.slice(0,3).join(', ') + (uniq.length>3 ? ` +${uniq.length-3}` : '');
     const label = uniq.length ? `⚙️ ${esc(names)}` : '💭 Thinking';
-    return `<details class="seg-group"><summary>`
+    return `<details class="seg-group"${open?' open':''}><summary>`
          + `<span class="seg-group-label">${label}</span>`
          + `<span class="seg-group-count">${n} step${n>1?'s':''}</span></summary>`
          + `<div class="seg-group-body">${inner}</div></details>`;
 }
 
 // Text renders inline; each run of think/tool steps between texts collapses as one group.
-function renderSegments(segs){
+function renderSegments(segs, open){
     let h='', group=[];
-    const flush = () => { if(group.length){ h += renderWorkGroup(group); group=[]; } };
+    const flush = () => { if(group.length){ h += renderWorkGroup(group, open); group=[]; } };
     for(const s of segs){
         if(s.type==='text'){
             if(!(s.content||'').trim()) continue;
@@ -214,15 +214,26 @@ async function send(){
         if(last && last.type==='text') last.content += d; else streamSegs.push({type:'text', content:d});
     };
     const paintStream = () => {
-        a.b.innerHTML = renderSegments(streamSegs)
+        // Render live groups open, so tool args/results are visible as they arrive;
+        // the final `done` render collapses them into the tidy resting view.
+        a.b.innerHTML = renderSegments(streamSegs, true)
             || '<div class="thinking-dots"><span></span><span></span><span></span></div>';
         scroll();
+    };
+    const fillResult = (ev) => {
+        let seg = ev.id && streamSegs.find(s => s.type==='tool_call' && s.id===ev.id);
+        if(!seg){ // fall back to the latest same-named call still awaiting a result
+            for(let i=streamSegs.length-1;i>=0;i--){ const s=streamSegs[i];
+                if(s.type==='tool_call' && s.name===ev.name && !(s.result_summary||'').trim()){ seg=s; break; } }
+        }
+        if(seg) seg.result_summary = ev.result||'';
     };
     es = new EventSource(`/chat/stream/${agentId}`);
     es.onmessage = (e) => {
         const ev = JSON.parse(e.data);
         if(ev.t==='text'){ acc += ev.delta; pushText(ev.delta); paintStream(); }
-        else if(ev.t==='tool'){ streamSegs.push({type:'tool_call', name:ev.name, args_summary:'', result_summary:''}); paintStream(); }
+        else if(ev.t==='tool'){ streamSegs.push({type:'tool_call', name:ev.name, args_summary:ev.args||'', result_summary:'', id:ev.id}); paintStream(); }
+        else if(ev.t==='tool_result'){ fillResult(ev); paintStream(); }
         else if(ev.t==='error'){ a.b.innerHTML = `<span class="text-poiesis-error">${esc(ev.message)}</span>`; }
         else if(ev.t==='done'){
             if(ev.segments && ev.segments.length) a.b.innerHTML = renderSegments(ev.segments);
