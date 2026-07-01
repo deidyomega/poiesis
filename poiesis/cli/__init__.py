@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 import click
 
@@ -11,7 +13,19 @@ LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 
 
 def _setup_logging() -> None:
-    logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
+    # Always mirror to a durable file so a post-mortem (esp. blank/errored turns)
+    # doesn't depend on the launch method — under `--app-only` in screen there's no
+    # journald, and screen's scrollback is short and volatile.
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    try:
+        log_dir = Path.home() / ".poiesis"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        handlers.append(
+            RotatingFileHandler(log_dir / "poiesis.log", maxBytes=5_000_000, backupCount=3)
+        )
+    except OSError:
+        pass  # stream-only is an acceptable fallback
+    logging.basicConfig(level=logging.INFO, format=LOG_FORMAT, handlers=handlers)
 
 
 @click.group()
