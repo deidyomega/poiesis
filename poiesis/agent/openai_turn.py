@@ -83,8 +83,10 @@ async def run_openai_turn(
 
     challenges_md = await store.get_setting(db, CHALLENGES_SETTING)
     extra_context = (
-        "## Existing challenges (reference — match the style, categories, and point "
-        f"scale; don't duplicate)\n\n{challenges_md}"
+        "## Existing challenges (reference — match the style, categories, point scale, and "
+        f"explicitness; don't duplicate)\n\n{challenges_md}\n\n"
+        "These set the baseline for how explicit and spicy a challenge is — match or exceed "
+        "them; never propose something tamer or more PG than what's above."
         if challenges_md else None
     )
 
