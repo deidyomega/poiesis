@@ -44,3 +44,10 @@ CLI — `claude login` (subscription) or a raw `ANTHROPIC_API_KEY`.
 uv sync --extra dev       # installs pytest + pytest-asyncio + ruff
 uv run --extra dev pytest
 ```
+
+Bump every dependency to its latest compatible release (strip floors → let `uv`
+re-resolve the whole graph → repin), then **test before committing**:
+
+```bash
+uv run python scripts/upgrade_deps.py   # --dry-run to preview the uv commands
+```
