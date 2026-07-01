@@ -48,7 +48,7 @@ def build_mcp_server(
         {"type": "object", "properties": {"content": {"type": "string"}}, "required": ["content"]},
     )
     async def remember(args: dict[str, Any]) -> dict[str, Any]:
-        await store.add_memory(db, args["content"])
+        await store.add_memory(db, channel_id, args["content"])
         return _text("Saved to memory.")
 
     @tool(
@@ -58,7 +58,9 @@ def build_mcp_server(
     )
     async def recall(args: dict[str, Any]) -> dict[str, Any]:
         q = (args or {}).get("query")
-        rows = await (store.search_memories(db, q) if q else store.list_memories(db))
+        rows = await (
+            store.search_memories(db, channel_id, q) if q else store.list_memories(db, channel_id)
+        )
         if not rows:
             return _text("(no memories)")
         return _text("\n".join(f"- {r['content']}" for r in rows))

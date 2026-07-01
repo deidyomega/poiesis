@@ -39,10 +39,14 @@ async def test_channel_and_message_roundtrip(db):
 
 
 async def test_memory_and_settings(db):
-    await store.add_memory(db, "User prefers dark mode")
-    await store.add_memory(db, "User lives in Denver")
-    assert len(await store.list_memories(db)) == 2
-    assert len(await store.search_memories(db, "dark")) == 1
+    await store.add_memory(db, "general", "User prefers dark mode")
+    await store.add_memory(db, "general", "User lives in Denver")
+    await store.add_memory(db, "pm", "Ship the invoice feature")
+    # memory is per-channel: #general's facts don't leak into #pm
+    assert len(await store.list_memories(db, "general")) == 2
+    assert len(await store.list_memories(db, "pm")) == 1
+    assert len(await store.search_memories(db, "general", "dark")) == 1
+    assert len(await store.search_memories(db, "pm", "dark")) == 0
 
     await store.set_setting(db, "last_green_sha", "abc123")
     assert await store.get_setting(db, "last_green_sha") == "abc123"

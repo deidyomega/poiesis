@@ -155,23 +155,26 @@ async def clear_channel(db: Database, channel_id: str) -> None:
 
 # ── Memory + journal ──────────────────────────────────────────────────────────
 
-async def list_memories(db: Database) -> list[dict[str, Any]]:
-    return await db.fetch_all("SELECT * FROM memories ORDER BY updated_at DESC")
-
-
-async def search_memories(db: Database, query: str) -> list[dict[str, Any]]:
+async def list_memories(db: Database, channel_id: str) -> list[dict[str, Any]]:
     return await db.fetch_all(
-        "SELECT * FROM memories WHERE content LIKE ? ORDER BY updated_at DESC",
-        (f"%{query}%",),
+        "SELECT * FROM memories WHERE channel_id = ? ORDER BY updated_at DESC", (channel_id,)
     )
 
 
-async def add_memory(db: Database, content: str) -> str:
+async def search_memories(db: Database, channel_id: str, query: str) -> list[dict[str, Any]]:
+    return await db.fetch_all(
+        "SELECT * FROM memories WHERE channel_id = ? AND content LIKE ? ORDER BY updated_at DESC",
+        (channel_id, f"%{query}%"),
+    )
+
+
+async def add_memory(db: Database, channel_id: str, content: str) -> str:
     mid = _id("mem")
     now = _now()
     await db.execute(
-        "INSERT INTO memories (id, content, created_at, updated_at) VALUES (?, ?, ?, ?)",
-        (mid, content, now, now),
+        "INSERT INTO memories (id, channel_id, content, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (mid, channel_id, content, now, now),
     )
     return mid
 
