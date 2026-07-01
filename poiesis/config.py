@@ -51,7 +51,7 @@ class PoiesisEnv(BaseSettings):
     # the Claude Agent SDK for that one channel. Key goes in ~/.poiesis/.env.
     spice_api_key: str = ""
     spice_base_url: str = "https://api.featherless.ai/v1"
-    spice_model: str = ""  # e.g. "moonshotai/Kimi-K2-Instruct"; channel.model overrides
+    spice_model: str = "dphn/Dolphin-Mistral-24B-Venice-Edition"  # POIESIS_SPICE_MODEL overrides
     # Default endpoint for #spice's `fetch` tool when called without a url — the
     # challenges JSON. Naive GET for now (CF Access lets the server's own IP through);
     # add a token seam here if that changes.
