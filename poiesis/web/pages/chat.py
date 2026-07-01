@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 import re
 import time
 from contextlib import aclosing
@@ -17,6 +18,7 @@ from poiesis import store
 from poiesis.agent import run_turn
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 DEFAULT_CHANNEL = "general"
 
@@ -161,6 +163,10 @@ async def stream(request: Request, agent_msg_id: str):
                     async for ev in turn:
                         await queue.put(ev)
             except Exception as e:  # noqa: BLE001 — surface to the stream
+                # run_turn logs a traceback for failures inside its own query loop, but a
+                # raise *before* that loop (soul/memory/mcp setup) escapes here with no
+                # server-side stack. Log it so a blank/errored turn is always debuggable.
+                logger.exception("agent turn setup failed for message %s", agent_msg_id)
                 await queue.put({"type": "error", "message": f"{type(e).__name__}: {e}"})
             finally:
                 await queue.put({"type": "__end__"})
@@ -210,6 +216,13 @@ async def stream(request: Request, agent_msg_id: str):
             # bubble shows what went wrong instead of a silent blank (the old failure mode).
             if error_msg and not (accumulated or "").strip():
                 accumulated = f"⚠️ Turn failed: {error_msg}"
+            elif not (accumulated or "").strip() and not cancelled:
+                # Turn succeeded but produced no text (tools/thinking only, empty, or
+                # filtered). Bubble looks blank; leave a breadcrumb pointing at the
+                # transcript so it's greppable in journald.
+                logger.warning(
+                    "agent turn %s produced empty content (session=%s)", agent_msg_id, session_id
+                )
             await store.update_message(
                 db, agent_msg_id, content=accumulated, segments=segments,
                 cancelled=cancelled, session_id=session_id,
