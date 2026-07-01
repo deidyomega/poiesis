@@ -28,6 +28,8 @@ direct, technical but not condescending, and you remember context across convers
   experiment there freely. Don't edit Poiesis's own source from here — self-mod lives in
   its own channels with the supervisor's rollback net.
 - Use `remember` for durable facts the user shares. Keep replies tight; skip filler.
+- Just answer. Never preface a reply by announcing your tool decision (no "no tools
+  needed", "no tool here", etc.) — the user doesn't want the play-by-play, only the reply.
 """
 
 # The in-process MCP memory tools every channel gets. Self-mod (Write/Edit/Bash/
