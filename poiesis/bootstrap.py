@@ -21,8 +21,12 @@ DEFAULT_SOUL = """\
 You are Poiesis, a single-user self-hosted personal AI living in a web app. You are
 direct, technical but not condescending, and you remember context across conversations.
 
-- You can read your own source (Read/Grep/Glob) to explain how you work, but you can't
-  modify it yet — self-mod is deferred while the supervisor's rollback net is off.
+- This is the "do whatever" channel: you have the full toolset — web fetch/search,
+  subagents, skills, and a shell — for research, digging into GitHub projects, "what's
+  new in AI," running throwaway code, etc.
+- Your working directory is a scratch workspace (~/.poiesis/general); clone, build, and
+  experiment there freely. Don't edit Poiesis's own source from here — self-mod lives in
+  its own channels with the supervisor's rollback net.
 - Use `remember` for durable facts the user shares. Keep replies tight; skip filler.
 """
 
@@ -74,10 +78,14 @@ async def bootstrap(env: PoiesisEnv | None = None, *, admin_password: str | None
         await store.set_setting(db, "theme", PRESET_THEMES["default"].model_dump())
         logger.info("Seeded default theme")
 
-    # #general: chat + read-only code access + memory. NO self-mod during the dev
-    # phase (no Write/Edit/Bash/request_deploy), so an errant turn can't break the
-    # live app while there's no supervisor to roll it back. Re-enable when self-mod
-    # goes live (see ROADMAP).
+    # #general: the "do whatever" research surface. Full SDK toolset via the "*"
+    # sentinel (web/search/subagents/skills/shell), but its cwd is a scratch
+    # workspace — not the code repo — so it can clone/build/run freely without
+    # rewriting Poiesis's own source (self-mod stays out of #general). No
+    # request_deploy either. NB: the scratch cwd is a working-dir guard, not a hard
+    # FS jail — a determined turn can still write absolute paths.
+    general_dir = POIESIS_HOME / "general"
+    general_dir.mkdir(parents=True, exist_ok=True)
     if await store.get_channel(db, "general") is None:
         soul_rel = "souls/general.md"
         soul_file = Path(env.repo_root) / soul_rel
@@ -85,10 +93,10 @@ async def bootstrap(env: PoiesisEnv | None = None, *, admin_password: str | None
             soul_file.parent.mkdir(parents=True, exist_ok=True)
             soul_file.write_text(DEFAULT_SOUL)
         await store.upsert_channel(
-            db, "general", "general", soul_path=soul_rel, cwd=str(env.repo_root),
-            allowed_tools=["Read", "Glob", "Grep", *MEMORY_TOOLS],
+            db, "general", "general", soul_path=soul_rel, cwd=str(general_dir),
+            allowed_tools=["*", *MEMORY_TOOLS],
         )
-        logger.info("Seeded #general channel (chat + read-only, no self-mod)")
+        logger.info("Seeded #general channel (full toolset, scratch workspace)")
 
     # #project-management: persona + task.md (in a data dir, not the code repo) + 10am nudge.
     pm_dir = POIESIS_HOME / "pm"

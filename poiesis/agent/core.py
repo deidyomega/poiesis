@@ -72,17 +72,29 @@ async def run_turn(
     # and bypassPermissions means `allowed_tools` won't gate them, so the model can
     # call anything. Worse, with that many tools the CLI *defers* our own MCP tools
     # behind ToolSearch, adding a round-trip that has been landing blank turns.
-    # Pin the built-in capability set to exactly the non-MCP tools we grant
-    # (empty list ⇒ MCP-only), and drop skills/subagents entirely.
-    builtin_tools = [t for t in allowed if not t.startswith("mcp__")]
+    #
+    # So we pin the capability set explicitly. A channel opts into the full SDK
+    # toolset (web/search/subagents/skills/coding) with the "*" sentinel — used by
+    # #general, the "do whatever" research surface. Every other channel gets exactly
+    # the non-MCP tools it lists (empty ⇒ MCP-only), with skills/subagents off.
+    if "*" in allowed:
+        tools: Any = {"type": "preset", "preset": "claude_code"}
+        skills: Any = "all"
+        agents: dict[str, Any] | None = None  # allow the CLI's default subagents
+        perm_tools = [t for t in allowed if t != "*"]
+    else:
+        tools = [t for t in allowed if not t.startswith("mcp__")]
+        skills = None
+        agents = {}
+        perm_tools = allowed
 
     options = ClaudeAgentOptions(
         system_prompt=system_prompt,
         mcp_servers={SERVER_NAME: server},
-        tools=builtin_tools,
-        allowed_tools=allowed,
-        skills=None,
-        agents={},
+        tools=tools,
+        allowed_tools=perm_tools,
+        skills=skills,
+        agents=agents,
         permission_mode="bypassPermissions",
         cwd=str(channel.get("cwd") or repo_root),
         include_partial_messages=True,
