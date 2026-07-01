@@ -235,7 +235,10 @@ async def stream(request: Request, agent_msg_id: str):
     return StreamingResponse(
         gen(),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        # no-transform stops the Cloudflare Tunnel edge from gzipping the stream
+        # (which would buffer it for the browser and break per-chunk rendering);
+        # X-Accel-Buffering disables nginx/proxy buffering.
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
     )
 
 
