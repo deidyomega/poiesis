@@ -61,8 +61,6 @@ done. Then:
 - Don't restate the request or pad. Just generate.
 
 No tools, no links (the client app handles linking), no web/shell — pure ideation.
-
-Answer directly, without a visible chain-of-thought. /no_think
 """
 
 

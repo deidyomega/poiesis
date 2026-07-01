@@ -116,6 +116,7 @@ async def run_openai_turn(
                 create_kwargs["tools"] = tool_schemas
             stream = await client.chat.completions.create(**create_kwargs)
             text_seg: dict[str, Any] | None = None
+            think_seg: dict[str, Any] | None = None
             tool_acc: dict[int, dict[str, str]] = {}
             round_text = ""
             async for chunk in stream:
@@ -125,6 +126,15 @@ async def run_openai_turn(
                 if not chunk.choices:
                     continue
                 delta = chunk.choices[0].delta
+                # Thinking models (qwen3) put reasoning in a separate field; keep it out of
+                # the reply but surface it as a collapsible thinking segment.
+                reasoning = getattr(delta, "reasoning", None) or getattr(delta, "reasoning_content", None)
+                if reasoning:
+                    if think_seg is None:
+                        think_seg = {"type": "thinking", "content": ""}
+                        segments.append(think_seg)
+                    think_seg["content"] += reasoning
+                    yield {"type": "thinking", "delta": reasoning}
                 if getattr(delta, "content", None):
                     round_text += delta.content
                     full_text += delta.content
