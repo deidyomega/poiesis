@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Edit soul — {{ channel.name.replace('-',' ').title() }} — {{ theme.app_name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto space-y-4">
+    <div class="flex items-center gap-3">
+        <a href="/settings" class="text-poiesis-muted hover:text-poiesis-text text-sm">← Settings</a>
+        <h1 class="text-xl font-semibold text-poiesis-text">
+            Soul · {{ channel.name.replace('-',' ').title() }}
+        </h1>
+        <span class="text-xs text-poiesis-muted font-mono ml-auto">{{ soul_path }}</span>
+    </div>
+
+    <p class="text-xs text-poiesis-muted">
+        This is the channel's persona, read fresh on every turn — a save takes effect on the
+        next reply, no restart. Each save is committed to git.
+    </p>
+
+    <form method="post" action="/settings/soul/{{ channel.id }}" class="space-y-3">
+        <textarea name="content" rows="22" spellcheck="false"
+            class="w-full font-mono text-sm rounded-poiesis border border-poiesis-border bg-poiesis-bg
+                   text-poiesis-text p-3 focus:outline-none focus:border-poiesis-accent resize-y">{{ content }}</textarea>
+        <div class="flex items-center gap-2">
+            <button type="submit"
+                class="px-4 py-1.5 text-sm rounded-poiesis bg-poiesis-accent text-white hover:opacity-90">
+                Save
+            </button>
+            <a href="/settings"
+                class="px-4 py-1.5 text-sm rounded-poiesis border border-poiesis-border text-poiesis-muted hover:text-poiesis-text">
+                Cancel
+            </a>
+        </div>
+    </form>
+</div>
+{% endblock %}

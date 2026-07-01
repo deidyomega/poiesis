@@ -10,6 +10,12 @@
         </form>
     </div>
 
+    {% if saved %}
+    <div class="rounded-poiesis border border-poiesis-success/40 bg-poiesis-success/10 text-poiesis-success text-sm px-3 py-2">
+        Saved <span class="font-medium">{{ saved.replace('-',' ').title() }}</span>'s soul — live on its next turn.
+    </div>
+    {% endif %}
+
     <section>
         <h2 class="text-sm font-semibold uppercase tracking-wider text-poiesis-muted mb-2">Channels</h2>
         <div class="rounded-poiesis border border-poiesis-border overflow-hidden">
@@ -22,7 +28,11 @@
                     <tr class="border-t border-poiesis-border">
                         <td class="px-3 py-2"><a href="/c/{{ c.id }}" class="text-poiesis-accent hover:underline">{{ c.name.replace('-',' ').title() }}</a></td>
                         <td class="px-3 py-2 text-poiesis-muted">{{ c.model or "default" }}</td>
-                        <td class="px-3 py-2 text-poiesis-muted">{{ c.soul_path or "—" }}</td>
+                        <td class="px-3 py-2">
+                            {% if c.soul_path %}
+                            <a href="/settings/soul/{{ c.id }}" class="text-poiesis-accent hover:underline">Edit</a>
+                            {% else %}<span class="text-poiesis-muted">—</span>{% endif %}
+                        </td>
                     </tr>
                 {% endfor %}
                 </tbody>

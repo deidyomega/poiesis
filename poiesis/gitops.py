@@ -42,3 +42,15 @@ def commit_all(repo: str | Path, message: str) -> str | None:
 def reset_hard(repo: str | Path, ref: str) -> bool:
     """Hard-reset the working tree to a ref (the rollback primitive)."""
     return _run(repo, "reset", "--hard", ref).returncode == 0
+
+
+def commit_file(repo: str | Path, relpath: str | Path, message: str) -> str | None:
+    """Stage and commit a single path, leaving any other changes untouched.
+
+    Used by the soul editor so a browser save is durable in git history without
+    sweeping unrelated working-tree edits. No-op (returns current HEAD) if the
+    file is unchanged.
+    """
+    _run(repo, "add", "--", str(relpath))
+    _run(repo, "commit", "-m", message, "--", str(relpath))
+    return current_sha(repo)
