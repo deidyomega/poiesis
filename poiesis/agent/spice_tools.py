@@ -132,7 +132,8 @@ async def run_fetch(arguments: str | dict[str, Any], env: PoiesisEnv | None = No
         except json.JSONDecodeError:
             data = None
         if data is not None:
-            md = challenges_to_markdown(data) if _looks_like_challenges(data) \
-                else json_to_markdown(data)
-            return f"{status}\n\n{md[:_MAX_BODY]}"
+            if _looks_like_challenges(data):
+                md = challenges_to_markdown(data)
+                return f"The user's current challenges (point-earning tasks):\n\n{md[:_MAX_BODY]}"
+            return f"{status}\n\n{json_to_markdown(data)[:_MAX_BODY]}"
     return f"{status}\n\n{body[:_MAX_BODY]}"
