@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}{{ theme.app_name }}{% endblock %}</title>
+
+    <!-- Tailwind CDN with dynamic poiesis color palette -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        poiesis: {
+                            bg: '{{ theme.colors.bg }}',
+                            surface: '{{ theme.colors.surface }}',
+                            border: '{{ theme.colors.border }}',
+                            accent: '{{ theme.colors.accent }}',
+                            text: '{{ theme.colors.text }}',
+                            muted: '{{ theme.colors.muted }}',
+                            success: '{{ theme.colors.success }}',
+                            warning: '{{ theme.colors.warning }}',
+                            error: '{{ theme.colors.error }}',
+                        }
+                    },
+                    fontFamily: {
+                        poiesis: [{% for f in theme.font_family.split(',') %}'{{ f.strip() }}'{% if not loop.last %}, {% endif %}{% endfor %}],
+                    },
+                    borderRadius: {
+                        poiesis: '{{ theme.border_radius }}',
+                    },
+                }
+            }
+        }
+    </script>
+
+    <!-- HTMX -->
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+
+    <!-- Optional Google Font -->
+    {% if theme.font_cdn %}
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="{{ theme.font_cdn }}" rel="stylesheet">
+    {% endif %}
+
+    {% if theme.favicon_url %}
+    <link rel="icon" href="{{ theme.favicon_url }}">
+    {% endif %}
+
+    <style>
+        body { background-color: {{ theme.colors.bg }}; color: {{ theme.colors.text }}; font-family: {% for f in theme.font_family.split(',') %}{% if ' ' in f.strip() %}'{{ f.strip() }}'{% else %}{{ f.strip() }}{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}; }
+        .htmx-swapping { opacity: 0; transition: opacity 0.2s ease-out; }
+        .htmx-settling { opacity: 1; transition: opacity 0.2s ease-in; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: {{ theme.colors.bg }}; }
+        ::-webkit-scrollbar-thumb { background: {{ theme.colors.border }}; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: {{ theme.colors.muted }}; }
+    </style>
+
+    {% block head %}{% endblock %}
+</head>
+<body class="min-h-screen bg-poiesis-bg text-poiesis-text font-poiesis">
+    <div class="flex min-h-screen">
+        <!-- Sidebar -->
+        {% include "components/nav.html" %}
+
+        <!-- Main Content -->
+        <div class="flex-1 flex flex-col lg:ml-64 min-w-0 overflow-hidden">
+            <!-- Mobile Top Bar -->
+            <header class="lg:hidden sticky top-0 z-20 bg-poiesis-surface border-b border-poiesis-border px-4 py-3 flex items-center gap-3">
+                <button onclick="toggleSidebar()" class="p-1 text-poiesis-muted hover:text-poiesis-text">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+                </button>
+                <span class="text-sm font-semibold text-poiesis-text">{{ theme.app_icon }} {{ theme.app_name }}</span>
+            </header>
+
+            <main class="flex-1 p-4 lg:p-6 overflow-y-auto overflow-x-hidden min-w-0">
+                {% block content %}{% endblock %}
+            </main>
+        </div>
+    </div>
+
+    <!-- Modal Container -->
+    <div id="modal-container" class="fixed inset-0 z-50 hidden">
+        <div class="absolute inset-0 bg-black/50" onclick="document.getElementById('modal-container').classList.add('hidden')"></div>
+        <div id="modal-content" class="relative z-10 mx-auto mt-20 max-w-lg px-4">
+        </div>
+    </div>
+
+    <script>
+        // Global HTMX event listeners
+        document.body.addEventListener('showModal', function(evt) {
+            document.getElementById('modal-container').classList.remove('hidden');
+        });
+        document.body.addEventListener('hideModal', function(evt) {
+            document.getElementById('modal-container').classList.add('hidden');
+        });
+    </script>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

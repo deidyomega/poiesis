@@ -1,0 +1,229 @@
+{% extends "base.html" %}
+{% block title %}{{ channel.name if channel else "Chat" }} — {{ theme.app_name }}{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/marked@15/marked.min.js"></script>
+<style>
+    .msg-markdown h1,.msg-markdown h2,.msg-markdown h3{font-weight:600;margin:.5em 0 .25em}
+    .msg-markdown h1{font-size:1.25em}.msg-markdown h2{font-size:1.1em}.msg-markdown h3{font-size:1em}
+    .msg-markdown p{margin:.25em 0}.msg-markdown ul,.msg-markdown ol{margin:.25em 0;padding-left:1.5em}
+    .msg-markdown ul{list-style:disc}.msg-markdown ol{list-style:decimal}.msg-markdown li{margin:.1em 0}
+    .msg-markdown code{background:rgba(0,0,0,.25);padding:.1em .35em;border-radius:3px;font-size:.9em}
+    .msg-markdown pre{background:rgba(0,0,0,.3);padding:.75em;border-radius:6px;overflow-x:auto;margin:.5em 0}
+    .msg-markdown pre code{background:none;padding:0}
+    .msg-markdown a{color:{{ theme.colors.accent }};text-decoration:underline}
+    .msg-user a{color:#fff;text-decoration:underline}  /* links readable on the accent bubble */
+    .msg-markdown table{border-collapse:collapse;margin:.5em 0;width:100%}
+    .msg-markdown th,.msg-markdown td{border:1px solid {{ theme.colors.border }};padding:.35em .6em;font-size:.9em}
+    @keyframes tp{0%,80%,100%{opacity:.3;transform:scale(.8)}40%{opacity:1;transform:scale(1)}}
+    .thinking-dots span{display:inline-block;width:6px;height:6px;border-radius:50%;background:{{ theme.colors.muted }};margin:0 2px;animation:tp 1.4s ease-in-out infinite}
+    .thinking-dots span:nth-child(2){animation-delay:.2s}.thinking-dots span:nth-child(3){animation-delay:.4s}
+    .seg-thinking{border-left:3px solid {{ theme.colors.muted }};padding:.4em .75em;margin:.4em 0;opacity:.7;font-size:.85em;background:rgba(0,0,0,.1);border-radius:4px}
+    .seg-thinking summary{cursor:pointer;font-style:italic}
+    .seg-tool{border-left:3px solid {{ theme.colors.accent }};padding:.4em .75em;margin:.4em 0;font-size:.85em;background:rgba(0,0,0,.1);border-radius:4px}
+    .seg-tool summary{cursor:pointer;color:{{ theme.colors.accent }};font-weight:500}
+    .seg-tool pre{white-space:pre-wrap;margin:.2em 0;max-height:10em;overflow:auto;font-size:.85em}
+    .seg-label{font-weight:600;font-size:.7em;text-transform:uppercase;opacity:.6}
+    .deploy-card{border:1px solid {{ theme.colors.border }};border-radius:8px;padding:.6em .8em;margin:.5em 0;font-size:.85em;background:{{ theme.colors.surface }}}
+    .deploy-step{display:inline-flex;align-items:center;gap:.3em;margin-right:.6em;opacity:.5}
+    .deploy-step.active{opacity:1;color:{{ theme.colors.accent }}}
+    .deploy-step.ok{opacity:1;color:{{ theme.colors.success }}}
+    .deploy-step.bad{opacity:1;color:{{ theme.colors.error }}}
+    .notif-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:{{ theme.colors.warning }};margin-right:.4em}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="flex flex-col h-[calc(100vh-2rem)] lg:h-[calc(100vh-3rem)] min-w-0">
+    <div class="flex items-center gap-2 mb-3 shrink-0">
+        <h1 class="text-lg font-semibold text-poiesis-text">{{ (channel.name if channel else "general").replace('-', ' ').title() }}</h1>
+        <form method="post" action="/chat/clear" class="ml-auto">
+            <input type="hidden" name="channel_id" value="{{ channel_id }}">
+            <button type="submit" onclick="return confirm('Clear this channel?')"
+                    class="px-2 py-1 text-xs rounded-poiesis text-poiesis-muted hover:text-poiesis-error">Clear</button>
+        </form>
+        <form method="post" action="/logout"><button class="px-2 py-1 text-xs rounded-poiesis text-poiesis-muted hover:text-poiesis-text">Sign out</button></form>
+    </div>
+
+    <div id="deploys" class="shrink-0"></div>
+
+    <div id="message-list" class="flex-1 overflow-y-auto space-y-3 mb-3 pr-1 min-w-0">
+        {% for m in messages %}
+        <div class="flex {% if m.role=='user' %}justify-end{% else %}justify-start{% endif %}" data-msg-id="{{ m.id }}" data-ts="{{ m.created_at }}">
+            <div class="max-w-[85%] px-4 py-2.5 rounded-poiesis text-sm leading-relaxed msg-markdown overflow-x-auto
+                        {% if m.role=='user' %}bg-poiesis-accent text-white msg-user{% elif m.role=='system' %}bg-poiesis-warning/20 border border-poiesis-warning/30{% else %}bg-poiesis-surface border border-poiesis-border{% endif %}"
+                 data-raw="{{ m.content|e }}" {% if m.segments %}data-segments='{{ m.segments|tojson }}'{% endif %}>{{ m.content }}</div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <form id="chat-form" class="flex gap-2 items-end shrink-0 pb-1">
+        <textarea id="chat-input" rows="1" placeholder="Message {{ (channel.name if channel else 'general').replace('-', ' ').title() }}… (Shift+Enter for newline)"
+                  class="flex-1 bg-poiesis-surface border border-poiesis-border rounded-poiesis px-4 py-2.5 text-sm text-poiesis-text placeholder-poiesis-muted focus:outline-none focus:border-poiesis-accent resize-none"></textarea>
+        <button type="submit" id="send-btn" class="px-5 py-2.5 text-sm rounded-poiesis bg-poiesis-accent text-white hover:opacity-90 shrink-0">Send</button>
+        <button type="button" id="stop-btn" class="hidden px-5 py-2.5 text-sm rounded-poiesis bg-poiesis-error text-white hover:opacity-90 shrink-0">Stop</button>
+    </form>
+</div>
+
+<script>
+marked.setOptions({ gfm: true, breaks: true });
+const channelId = {{ channel_id|tojson }};
+const list = document.getElementById('message-list');
+const input = document.getElementById('chat-input');
+const form = document.getElementById('chat-form');
+const sendBtn = document.getElementById('send-btn');
+const stopBtn = document.getElementById('stop-btn');
+let es = null;
+let lastSeen = '';                    // max created_at seen (for the poller)
+const localIds = new Set();           // ids created in this tab (avoid poller dupes)
+
+const esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const md = t => t ? marked.parse(t) : '';
+const scroll = () => { list.scrollTop = list.scrollHeight; };
+const known = id => id && (localIds.has(id) || document.querySelector(`[data-msg-id="${id}"]`));
+
+function renderSegments(segs){
+    let h='';
+    for(const s of segs){
+        if(s.type==='text'){ if(!(s.content||'').trim()) continue; h += `<div class="msg-markdown">${md(s.content)}</div>`; }
+        else if(s.type==='thinking'){ if(!(s.content||'').trim()) continue; h += `<details class="seg-thinking"><summary>Thinking…</summary><pre>${esc(s.content)}</pre></details>`; }
+        else if(s.type==='tool_call'){
+            h += `<details class="seg-tool"><summary>🔧 ${esc(s.name)}</summary>`;
+            if((s.args_summary||'').trim()) h += `<div class="seg-label">Args</div><pre>${esc(s.args_summary)}</pre>`;
+            if((s.result_summary||'').trim()) h += `<div class="seg-label">Result</div><pre>${esc(s.result_summary)}</pre>`;
+            h += `</details>`;
+        }
+    }
+    return h;
+}
+
+function bubbleBody(role){
+    const wrap = document.createElement('div');
+    wrap.className = 'flex ' + (role==='user'?'justify-end':'justify-start');
+    const b = document.createElement('div');
+    b.className = 'max-w-[85%] px-4 py-2.5 rounded-poiesis text-sm leading-relaxed msg-markdown overflow-x-auto ' +
+        (role==='user' ? 'bg-poiesis-accent text-white msg-user'
+         : role==='system' ? 'bg-poiesis-warning/20 border border-poiesis-warning/30'
+         : 'bg-poiesis-surface border border-poiesis-border');
+    wrap.appendChild(b); list.appendChild(wrap); scroll();
+    return { wrap, b };
+}
+
+// Render a complete message object (from the poller / server).
+function appendMessage(m){
+    const { wrap, b } = bubbleBody(m.role);
+    wrap.dataset.msgId = m.id;
+    if(m.created_at) wrap.dataset.ts = m.created_at;
+    if(m.segments && m.segments.length) b.innerHTML = renderSegments(m.segments);
+    else b.innerHTML = (m.notification ? '<span class="notif-dot"></span>' : '') + md(m.content);
+    if(m.notification) fireNotification(m);
+}
+
+function fireNotification(m){
+    try{
+        if('Notification' in window && Notification.permission==='granted'){
+            new Notification('{{ theme.app_name }} · '+channelId, { body: (m.content||'').slice(0,180) });
+        }
+    }catch(e){}
+}
+
+// Render server-supplied bubbles + seed lastSeen.
+document.querySelectorAll('#message-list [data-msg-id]').forEach(w => {
+    const el = w.querySelector('[data-raw]');
+    if(el){
+        if(el.dataset.segments){ try{ const s=JSON.parse(el.dataset.segments); if(s&&s.length){ el.innerHTML=renderSegments(s); } else el.innerHTML=md(el.dataset.raw); }catch(e){ el.innerHTML=md(el.dataset.raw); } }
+        else el.innerHTML = md(el.dataset.raw);
+    }
+    if(w.dataset.ts && w.dataset.ts > lastSeen) lastSeen = w.dataset.ts;
+});
+scroll();
+
+function setGenerating(on){ sendBtn.classList.toggle('hidden', on); stopBtn.classList.toggle('hidden', !on); }
+
+async function send(){
+    const text = input.value.trim();
+    if(!text) return;
+    input.value=''; input.style.height='auto';
+    const u = bubbleBody('user'); u.b.innerHTML = md(text);
+    const a = bubbleBody('agent');
+    a.b.innerHTML = '<div class="thinking-dots"><span></span><span></span><span></span></div>';
+    setGenerating(true);
+    const fd = new FormData(); fd.append('channel_id', channelId); fd.append('message', text);
+    let agentId;
+    try{
+        const r = await fetch('/chat/send',{method:'POST',body:fd});
+        const j = await r.json(); agentId = j.agent_id;
+        u.wrap.dataset.msgId = j.user_id; a.wrap.dataset.msgId = j.agent_id;
+        localIds.add(j.user_id); localIds.add(j.agent_id);
+    }catch(e){ a.b.innerHTML='<span class="text-poiesis-error text-sm">Failed to send.</span>'; setGenerating(false); return; }
+
+    let acc=''; let toolNote='';
+    es = new EventSource(`/chat/stream/${agentId}`);
+    es.onmessage = (e) => {
+        const ev = JSON.parse(e.data);
+        if(ev.t==='text'){ acc += ev.delta; a.b.innerHTML = md(acc) + toolNote; scroll(); }
+        else if(ev.t==='tool'){ toolNote = `<div class="text-xs text-poiesis-muted mt-1">🔧 ${esc(ev.name)}…</div>`; a.b.innerHTML = md(acc) + toolNote; scroll(); }
+        else if(ev.t==='error'){ a.b.innerHTML = `<span class="text-poiesis-error">${esc(ev.message)}</span>`; }
+        else if(ev.t==='done'){
+            toolNote='';
+            if(ev.segments && ev.segments.length) a.b.innerHTML = renderSegments(ev.segments);
+            else a.b.innerHTML = md(ev.content||acc);
+            if(ev.cancelled) a.b.innerHTML += '<div class="text-xs text-poiesis-muted mt-1 italic">Stopped</div>';
+            es.close(); es=null; setGenerating(false); scroll(); pollDeploys();
+        }
+    };
+    es.onerror = () => { if(es){ es.close(); es=null; } setGenerating(false); };
+}
+
+stopBtn.addEventListener('click', () => { if(es){ es.close(); es=null; } setGenerating(false); });
+form.addEventListener('submit', e => { e.preventDefault(); send(); });
+input.addEventListener('keydown', e => { if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); send(); } });
+input.addEventListener('input', () => { input.style.height='auto'; input.style.height=Math.min(input.scrollHeight,160)+'px'; });
+if('Notification' in window && Notification.permission==='default') Notification.requestPermission();
+
+// ── Live message poller (proactive/scheduled messages appear without refresh) ──
+async function pollMessages(){
+    try{
+        const r = await fetch(`/chat/${channelId}/messages?after=${encodeURIComponent(lastSeen)}`);
+        if(!r.ok) return;
+        const data = await r.json();
+        for(const m of (data.messages||[])){
+            if(m.created_at && m.created_at > lastSeen) lastSeen = m.created_at;
+            if(known(m.id)) continue;        // already shown (incl. our own streamed msgs)
+            if(!m.content) continue;          // skip empty placeholders mid-stream
+            appendMessage(m);
+        }
+    }catch(e){ /* server may be restarting — retry next tick */ }
+}
+setInterval(pollMessages, 3000);
+
+// ── Deploy card poller (durable-state projection; survives app restarts) ──
+const DEPLOY_STEPS = ['requested','committing','restarting','health_check','live'];
+function deployCard(d){
+    const failed = d.status==='rolled_back' || d.status==='failed';
+    let steps=''; const idx = DEPLOY_STEPS.indexOf(d.status);
+    DEPLOY_STEPS.forEach((s,i)=>{
+        let cls='deploy-step';
+        if(d.status==='live' || (idx>=0 && i<idx)) cls+=' ok';
+        else if(i===idx) cls+=' active';
+        steps += `<span class="${cls}">${s.replace('_',' ')}</span>`;
+    });
+    if(failed) steps += `<span class="deploy-step bad">${d.status.replace('_',' ')}</span>`;
+    return `<div class="deploy-card" data-deploy="${d.id}">
+        <div class="font-medium mb-1">🚀 ${esc(d.summary||'self-mod')}</div>
+        <div>${steps}</div>
+        ${d.reason?`<div class="text-xs text-poiesis-error mt-1">${esc(d.reason)}</div>`:''}
+    </div>`;
+}
+async function pollDeploys(){
+    try{
+        const r = await fetch(`/chat/${channelId}/deploys`);
+        if(!r.ok) return;
+        const data = await r.json();
+        document.getElementById('deploys').innerHTML = (data.deploys||[]).slice(0,3).map(deployCard).join('');
+    }catch(e){}
+}
+pollDeploys();
+setInterval(pollDeploys, 2500);
+</script>
+{% endblock %}

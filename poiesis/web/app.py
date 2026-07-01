@@ -1,0 +1,87 @@
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import logging
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+import jinja2
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
+
+from poiesis.config import PoiesisEnv
+from poiesis.db import Database
+from poiesis.migrations.runner import run_migrations
+from poiesis.web import auth
+from poiesis.web.middleware import ThemeMiddleware
+from poiesis.web.pages import chat, settings
+from poiesis.web.theming import PRESET_THEMES
+
+logger = logging.getLogger(__name__)
+
+WEB_DIR = Path(__file__).parent
+TEMPLATES_DIR = WEB_DIR / "templates"
+
+# Page routers, in nav order. Explicit — no discovery/generator engine (the v1
+# "AI writes whole pages" machinery is gone; the nav is channel-driven, see nav.html).
+PAGE_ROUTERS = [chat.router, settings.router]
+
+
+def create_app(db: Database, env: PoiesisEnv) -> FastAPI:
+    """Assemble the FastAPI app: templates, pages, theme, auth, health.
+
+    The Database is connected (and migrations applied) inside the lifespan so the
+    aiosqlite connection is bound to the serving event loop.
+    """
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        from poiesis.scheduler import run_scheduler
+
+        await db.connect()
+        await run_migrations(db)
+        scheduler_task = asyncio.create_task(run_scheduler(db, env))
+        try:
+            yield
+        finally:
+            scheduler_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await scheduler_task
+            await db.close()
+
+    app = FastAPI(title="Poiesis", version="0.2.0", lifespan=lifespan)
+
+    templates = Jinja2Templates(directory=[str(TEMPLATES_DIR)])
+    templates.env = templates.env.overlay(cache_size=0)
+    templates.env.globals["theme"] = PRESET_THEMES["default"]
+
+    app.include_router(auth.router)
+    for page_router in PAGE_ROUTERS:
+        app.include_router(page_router)
+
+    @app.get("/healthz", response_class=JSONResponse)
+    async def healthz() -> JSONResponse:
+        # The app booting far enough to serve this already proves imports work;
+        # a cheap DB round-trip proves persistence is wired. The supervisor polls this.
+        await db.fetch_one("SELECT 1 AS ok")
+        return JSONResponse({"status": "ok"})
+
+    @app.exception_handler(jinja2.exceptions.TemplateNotFound)
+    async def template_not_found_handler(request: Request, exc) -> HTMLResponse:
+        return HTMLResponse(
+            content=f"<h1>404 — Not Found</h1><p>Template <code>{exc.name}</code> is missing.</p>",
+            status_code=404,
+        )
+
+    # Middleware stack (last added = outermost). Want: Session -> Auth -> Theme -> app.
+    app.add_middleware(ThemeMiddleware, db=db, templates=templates)
+    app.add_middleware(auth.AuthMiddleware)
+    app.add_middleware(SessionMiddleware, secret_key=env.effective_session_secret())
+
+    app.state.db = db
+    app.state.env = env
+    app.state.templates = templates
+    return app

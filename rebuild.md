@@ -1,4 +1,4 @@
-# Glitch v2 — Rebuild Spec (DRAFT)
+# Poiesis v2 — Rebuild Spec (DRAFT)
 
 > Draft for review — supersedes `architecture.md`. Shred freely.
 > Goal: a small, **finishable**, self-hosted personal agent Matt uses daily — that

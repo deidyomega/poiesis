@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from glitch_core.scheduler import is_due
+from poiesis.scheduler import is_due
 
 
 def _daily(hour=10, minute=0, tz="UTC", last_run=None):

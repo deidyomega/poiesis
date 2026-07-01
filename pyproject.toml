@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "glitch-core"
-version = "0.1.0"
-description = "Distributed self-hosted AI system"
+name = "poiesis"
+version = "0.2.0"
+description = "Single-user, self-hosted personal AI that edits its own code"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -32,10 +32,10 @@ dev = [
 ]
 
 [project.scripts]
-glitch = "glitch_core.cli:cli"
+poiesis = "poiesis.cli:cli"
 
 [tool.hatch.build.targets.wheel]
-packages = ["glitch_core"]
+packages = ["poiesis"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

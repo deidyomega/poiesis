@@ -1,0 +1,56 @@
+<!-- Mobile overlay (closes sidebar when tapping outside) -->
+<div id="sidebar-overlay" class="fixed inset-0 bg-black/50 z-30 hidden lg:hidden" onclick="toggleSidebar()"></div>
+
+<aside id="sidebar" class="fixed top-0 left-0 h-screen w-64 bg-poiesis-surface border-r border-poiesis-border flex flex-col z-40 transition-transform duration-200 -translate-x-full lg:translate-x-0">
+    <!-- Branding -->
+    <div class="p-4 border-b border-poiesis-border flex items-center justify-between">
+        <a href="/" class="flex items-center gap-2 text-lg font-semibold text-poiesis-text hover:text-poiesis-accent transition-colors">
+            <span class="text-2xl">{{ theme.app_icon }}</span>
+            <span>{{ theme.app_name }}</span>
+        </a>
+        <button onclick="toggleSidebar()" class="lg:hidden p-1 text-poiesis-muted hover:text-poiesis-text">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+    </div>
+
+    <!-- Channels -->
+    <nav class="flex-1 overflow-y-auto p-3">
+        <h3 class="text-xs font-semibold uppercase tracking-wider text-poiesis-muted px-2 mb-1">Chats</h3>
+        <ul class="space-y-0.5">
+            {% set path = request.url.path if request else '/' %}
+            {% for c in channels %}
+            {% set href = '/c/' + c.id %}
+            {% set active = (path == href) or (path == '/' and c.id == 'general') %}
+            <li>
+                <a href="{{ href }}"
+                   onclick="if(window.innerWidth < 1024) toggleSidebar()"
+                   class="flex items-center gap-2 px-2 py-1.5 rounded-poiesis text-sm transition-colors
+                          {% if active %}bg-poiesis-accent/20 text-poiesis-accent font-medium{% else %}text-poiesis-text hover:bg-poiesis-border/50 hover:text-poiesis-accent{% endif %}">
+                    <span>{{ c.name.replace('-', ' ').title() }}</span>
+                </a>
+            </li>
+            {% endfor %}
+        </ul>
+    </nav>
+
+    <!-- Footer: Settings -->
+    <div class="p-3 border-t border-poiesis-border">
+        {% set on_settings = request and request.url.path == '/settings' %}
+        <a href="/settings"
+           class="flex items-center gap-2 px-2 py-1.5 rounded-poiesis text-sm transition-colors
+                  {% if on_settings %}bg-poiesis-accent/20 text-poiesis-accent{% else %}text-poiesis-muted hover:bg-poiesis-border/50 hover:text-poiesis-accent{% endif %}">
+            <span>⚙️</span><span>Settings</span>
+        </a>
+        <div class="mt-1 text-xs text-poiesis-muted px-2">v0.2.0</div>
+    </div>
+</aside>
+
+<script>
+function toggleSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('sidebar-overlay');
+    const isOpen = !sidebar.classList.contains('-translate-x-full');
+    if (isOpen) { sidebar.classList.add('-translate-x-full'); overlay.classList.add('hidden'); }
+    else { sidebar.classList.remove('-translate-x-full'); overlay.classList.remove('hidden'); }
+}
+</script>

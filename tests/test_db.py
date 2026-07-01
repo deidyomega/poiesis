@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from glitch_core import store
-from glitch_core.db import Database
-from glitch_core.migrations.runner import run_migrations
+from poiesis import store
+from poiesis.db import Database
+from poiesis.migrations.runner import run_migrations
 
 
 @pytest.fixture

@@ -1,9 +1,0 @@
-<div class="bg-glitch-surface border border-glitch-border rounded-glitch p-4">
-    <div class="text-glitch-muted text-sm">{{ label }}</div>
-    <div class="text-2xl font-semibold text-glitch-text mt-1">{{ value }}</div>
-    {% if trend %}
-    <div class="text-xs mt-1 {% if trend == 'up' %}text-glitch-success{% elif trend == 'down' %}text-glitch-error{% else %}text-glitch-muted{% endif %}">
-        {{ trend_label | default("") }}
-    </div>
-    {% endif %}
-</div>

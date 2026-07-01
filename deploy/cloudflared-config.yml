@@ -1,4 +1,4 @@
-# Cloudflare Tunnel config for Glitch.
+# Cloudflare Tunnel config for Poiesis.
 #
 # cloudflared dials OUT to Cloudflare's edge — no inbound ports, no port-forward,
 # ISP port-80 blocks irrelevant. Cloudflare terminates TLS and routes the hostname
@@ -6,14 +6,14 @@
 #
 # Setup (see deploy/README.md §3):
 #   cloudflared tunnel login
-#   cloudflared tunnel create glitch              # note the tunnel ID + creds path
-#   cloudflared tunnel route dns glitch agent.mattharris.tech
+#   cloudflared tunnel create poiesis              # note the tunnel ID + creds path
+#   cloudflared tunnel route dns poiesis agent.mattharris.tech
 #   sudo cp deploy/cloudflared-config.yml /etc/cloudflared/config.yml   # after editing below
 #   sudo cloudflared service install
 #
 # Edit the two values below to match `tunnel create` output.
 
-tunnel: glitch
+tunnel: poiesis
 credentials-file: /home/matt/.cloudflared/<TUNNEL_ID>.json
 
 ingress:

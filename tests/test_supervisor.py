@@ -12,11 +12,11 @@ import subprocess
 
 import pytest
 
-from glitch_core import gitops, store
-from glitch_core.config import GlitchEnv
-from glitch_core.db import Database
-from glitch_core.migrations.runner import run_migrations
-from glitch_core.supervisor import Supervisor
+from poiesis import gitops, store
+from poiesis.config import PoiesisEnv
+from poiesis.db import Database
+from poiesis.migrations.runner import run_migrations
+from poiesis.supervisor import Supervisor
 
 GIT_ENV = {
     **os.environ,
@@ -57,7 +57,7 @@ async def test_deploy_live_then_rollback(tmp_path):
     green0 = gitops.current_sha(repo)
 
     db_path = tmp_path / "t.db"
-    env = GlitchEnv(
+    env = PoiesisEnv(
         db_path=db_path, repo_root=repo, host="127.0.0.1", port=_free_port(),
         session_secret="x" * 40,
     )

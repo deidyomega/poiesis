@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import subprocess
 
-from glitch_core import gitops
+from poiesis import gitops
 
 GIT_ENV = {
     **os.environ,
