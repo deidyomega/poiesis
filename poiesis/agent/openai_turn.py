@@ -91,7 +91,10 @@ async def run_openai_turn(
     )
 
     soul = _read_soul(repo_root, channel.get("soul_path"))
-    memories = await store.list_memories(db)
+    # No shared memories here: that table is the Claude channels' remember/recall store
+    # (and dev notes); #spice doesn't write it and injecting it just pollutes the prompt
+    # with unrelated facts. #spice works off its soul + the injected challenges.
+    memories: list[dict[str, Any]] = []
     system_prompt = build_system_prompt(
         soul, memories, tz=tz,
         tool_guidance=SPICE_TOOL_GUIDANCE if tool_schemas else None,
