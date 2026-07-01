@@ -106,7 +106,9 @@ async def run_openai_turn(
                          "content": m["content"]})
     messages.append({"role": "user", "content": user_message})
 
-    client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+    # max_retries > default: hosted routers (OpenRouter) transiently 429 when an upstream
+    # provider is throttled; the client honors Retry-After and backs off across attempts.
+    client = AsyncOpenAI(api_key=api_key, base_url=base_url, max_retries=4)
     segments: list[dict[str, Any]] = []
     full_text = ""
     cancelled = False
