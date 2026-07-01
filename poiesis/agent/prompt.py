@@ -35,11 +35,14 @@ def build_system_prompt(
     memories: list[dict[str, Any]],
     tz: str = "UTC",
     tool_guidance: str | None = TOOL_GUIDANCE,
+    extra_context: str | None = None,
 ) -> str:
     parts: list[str] = [(soul or "").strip() or DEFAULT_SOUL]
     if memories:
         lines = "\n".join(f"- {m['content']}" for m in memories)
         parts.append(f"## What you remember about the user\n{lines}")
+    if extra_context and extra_context.strip():
+        parts.append(extra_context.strip())
     if tool_guidance:
         parts.append(tool_guidance)
     # Volatile, so it goes last (keeps the stable prefix cache-friendly).

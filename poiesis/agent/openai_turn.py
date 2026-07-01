@@ -1,13 +1,18 @@
-"""Agent turn runner for OpenAI-compatible providers (e.g. Featherless, for #spice).
+"""Agent turn runner for OpenAI-compatible providers (Ollama/Featherless, for #spice).
 
 Mirrors `agent.core.run_turn`: an async generator yielding the same streaming events
 (text / tool_call / tool_result / done) so the whole chat/SSE + segments UI works
 unchanged. There's no Claude session here, so `session_id` is always None (no raw
-transcript link). #spice gets exactly one tool: `fetch` (see spice_tools).
+transcript link).
+
+Tools are opt-in per channel via `allowed_tools`. #spice runs tool-free: its slow
+thinking model gets the challenges pre-injected into the system prompt (cached at
+startup) instead of paying for a runtime tool round-trip.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from typing import Any, AsyncIterator, Callable
@@ -16,7 +21,7 @@ from openai import AsyncOpenAI
 
 from poiesis import store
 from poiesis.agent.prompt import build_system_prompt
-from poiesis.agent.spice_tools import FETCH_TOOL_SCHEMA, run_fetch
+from poiesis.agent.spice_tools import CHALLENGES_SETTING, FETCH_TOOL_SCHEMA, run_fetch
 from poiesis.config import PoiesisEnv
 from poiesis.db import Database
 
@@ -27,9 +32,10 @@ SPICE_TOOL_GUIDANCE = """\
 - You have one tool, `fetch`: give it a URL and it GETs the page, turning JSON into
   readable markdown. Use it whenever the user points you at an API/endpoint or asks
   for data you'd need to look up over HTTP.
-- You have no web search and no code/deploy tools — just chat and `fetch`.
 - Don't narrate tool calls with filler; fetch what you need and summarize the result."""
 
+# Built-in tool schemas + their executors, wired only when a channel lists them.
+_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {"fetch": FETCH_TOOL_SCHEMA}
 _TOOL_RUNNERS: dict[str, Callable[[str], Any]] = {"fetch": run_fetch}
 
 
@@ -70,9 +76,24 @@ async def run_openai_turn(
                "~/.poiesis/.env (or the channel's model).", "session_id": None}
         return
 
+    # Tools are opt-in per channel. #spice lists none, so it runs tool-free and instead
+    # gets its challenges pre-injected below.
+    allowed = json.loads(channel["allowed_tools"]) if channel.get("allowed_tools") else []
+    tool_schemas = [_TOOL_SCHEMAS[t] for t in allowed if t in _TOOL_SCHEMAS]
+
+    challenges_md = await store.get_setting(db, CHALLENGES_SETTING)
+    extra_context = (
+        f"## The user's current challenges (point-earning tasks)\n\n{challenges_md}"
+        if challenges_md else None
+    )
+
     soul = _read_soul(repo_root, channel.get("soul_path"))
     memories = await store.list_memories(db)
-    system_prompt = build_system_prompt(soul, memories, tz=tz, tool_guidance=SPICE_TOOL_GUIDANCE)
+    system_prompt = build_system_prompt(
+        soul, memories, tz=tz,
+        tool_guidance=SPICE_TOOL_GUIDANCE if tool_schemas else None,
+        extra_context=extra_context,
+    )
 
     messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
     for m in history:
@@ -89,9 +110,10 @@ async def run_openai_turn(
 
     try:
         for _round in range(max_turns):
-            stream = await client.chat.completions.create(
-                model=model, messages=messages, tools=[FETCH_TOOL_SCHEMA], stream=True,
-            )
+            create_kwargs: dict[str, Any] = {"model": model, "messages": messages, "stream": True}
+            if tool_schemas:
+                create_kwargs["tools"] = tool_schemas
+            stream = await client.chat.completions.create(**create_kwargs)
             text_seg: dict[str, Any] | None = None
             tool_acc: dict[int, dict[str, str]] = {}
             round_text = ""

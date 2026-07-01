@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import types
 
 from poiesis.agent import openai_turn
@@ -12,6 +13,9 @@ from poiesis.agent.spice_tools import challenges_to_markdown, json_to_markdown, 
 class FakeDB:
     async def fetch_all(self, *a, **k):
         return []
+
+    async def fetch_one(self, *a, **k):
+        return None  # no settings row → no cached challenges
 
 
 async def _drain(gen):
@@ -145,3 +149,46 @@ async def test_full_turn_with_tool_call(monkeypatch):
 
 async def _coro(v):
     return v
+
+
+# ── challenges injected into the prompt (no tool call) ───────────────────────
+
+class RecordingCompletions:
+    def __init__(self):
+        self.last_messages = None
+
+    async def create(self, **kwargs):
+        self.last_messages = kwargs["messages"]
+        assert "tools" not in kwargs, "#spice should send no tools"
+
+        async def gen():
+            yield _chunk(content="Do challenge abc.")
+            yield _chunk(finish="stop")
+        return gen()
+
+
+class RecordingClient:
+    def __init__(self):
+        self.chat = types.SimpleNamespace(completions=RecordingCompletions())
+
+
+async def test_challenges_injected_into_system_prompt(monkeypatch):
+    monkeypatch.setenv("POIESIS_SPICE_API_KEY", "")
+    monkeypatch.setenv("POIESIS_SPICE_MODEL", "m")
+
+    class DBWithChallenges(FakeDB):
+        async def fetch_one(self, *a, **k):  # store.get_setting reads this row
+            return {"value": json.dumps("- **abc** (category: dare, 10 pts): do it")}
+
+    client = RecordingClient()
+    monkeypatch.setattr(openai_turn, "AsyncOpenAI", lambda **k: client)
+    evs = await _drain(run_openai_turn(
+        db=DBWithChallenges(),
+        channel={"id": "spice", "soul_path": None, "allowed_tools": "[]"},
+        history=[], user_message="what next?", message_id="x",
+    ))
+    assert evs[-1]["type"] == "done"
+    sys_msg = client.chat.completions.last_messages[0]
+    assert sys_msg["role"] == "system"
+    assert "- **abc**" in sys_msg["content"]
+    assert "current challenges" in sys_msg["content"].lower()

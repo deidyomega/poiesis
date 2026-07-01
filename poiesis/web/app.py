@@ -43,6 +43,14 @@ def create_app(db: Database, env: PoiesisEnv) -> FastAPI:
 
         await db.connect()
         await run_migrations(db)
+        # Pre-load #spice's challenges into a cached markdown blob so its (slow, thinking)
+        # model gets them in-context without a runtime tool round-trip. Refreshes each boot.
+        from poiesis.agent.spice_tools import refresh_challenges
+        try:
+            n = await refresh_challenges(db, env)
+            logging.getLogger("poiesis.web.app").info("Loaded %d challenge line(s) for #spice", n)
+        except Exception:  # noqa: BLE001 — never block boot on the challenges fetch
+            logging.getLogger("poiesis.web.app").exception("challenges refresh failed")
         scheduler_task = asyncio.create_task(run_scheduler(db, env))
         try:
             yield

@@ -53,10 +53,12 @@ class PoiesisEnv(BaseSettings):
     spice_api_key: str = ""
     spice_base_url: str = "http://localhost:11434/v1"
     spice_model: str = ""  # e.g. an Ollama model like "qwen3.6:latest"; set POIESIS_SPICE_MODEL
-    # Default endpoint for #spice's `fetch` tool when called without a url — the
-    # challenges JSON. Naive GET for now (CF Access lets the server's own IP through);
-    # add a token seam here if that changes.
+    # #spice's challenges JSON: fetched at startup and injected into the system prompt
+    # (no runtime tool call — keeps the thinking model fast). If the endpoint sits behind
+    # Cloudflare Access, set a service token (CF-Access-Client-Id/Secret) to get through.
     spice_challenges_url: str = ""
+    spice_challenges_cf_client_id: str = ""
+    spice_challenges_cf_client_secret: str = ""
 
     def effective_session_secret(self) -> str:
         """Return a stable session secret, persisting a generated one if unset.

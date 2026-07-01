@@ -8,12 +8,15 @@ the model can actually read the payload instead of a wall of braces.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any
 
 import httpx
 
 from poiesis.config import PoiesisEnv
+
+logger = logging.getLogger(__name__)
 
 # OpenAI function-tool schema advertised to the model.
 FETCH_TOOL_SCHEMA: dict[str, Any] = {
@@ -100,6 +103,51 @@ def _scalar(v: Any) -> str:
     if isinstance(v, bool):
         return "true" if v else "false"
     return str(v)
+
+
+CHALLENGES_SETTING = "spice_challenges_md"  # DB settings key for the cached markdown
+
+
+def _cf_headers(env: PoiesisEnv) -> dict[str, str]:
+    """Cloudflare Access service-token headers, if configured (else empty)."""
+    cid = env.spice_challenges_cf_client_id
+    secret = env.spice_challenges_cf_client_secret
+    if cid and secret:
+        return {"CF-Access-Client-Id": cid, "CF-Access-Client-Secret": secret}
+    return {}
+
+
+async def fetch_challenges_markdown(env: PoiesisEnv) -> str:
+    """GET the challenges JSON and render it as markdown. Returns '' on any problem."""
+    url = env.spice_challenges_url
+    if not url:
+        return ""
+    headers = {"Accept": "application/json", **_cf_headers(env)}
+    try:
+        async with httpx.AsyncClient(timeout=20, follow_redirects=False) as client:
+            resp = await client.get(url, headers=headers)
+    except httpx.HTTPError as e:
+        logger.warning("challenges fetch failed: %s: %s", type(e).__name__, e)
+        return ""
+    if resp.status_code != 200:
+        # A 302 to cloudflareaccess.com means the endpoint is still Access-gated.
+        logger.warning("challenges fetch got %s (Access-gated?) for %s", resp.status_code, url)
+        return ""
+    try:
+        data = resp.json()
+    except ValueError:
+        logger.warning("challenges endpoint did not return JSON")
+        return ""
+    items = data if isinstance(data, list) else data.get("challenges", [])
+    return challenges_to_markdown(items) if isinstance(items, list) else ""
+
+
+async def refresh_challenges(db, env: PoiesisEnv) -> int:
+    """Fetch challenges and cache the markdown in settings. Returns line count (0 if none)."""
+    md = await fetch_challenges_markdown(env)
+    from poiesis import store
+    await store.set_setting(db, CHALLENGES_SETTING, md)
+    return md.count("\n") + 1 if md else 0
 
 
 async def run_fetch(arguments: str | dict[str, Any], env: PoiesisEnv | None = None) -> str:

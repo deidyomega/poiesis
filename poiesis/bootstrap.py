@@ -50,17 +50,18 @@ open model. Off the Claude rails; don't moralize or hedge unnecessarily.
 - Match the user's tone and length — short questions get short answers.
 
 ## Challenges
-You have one tool, `fetch`. Call it with **no arguments** to pull the user's current
-challenges (point-earning tasks); it returns a markdown list. Refer to it whenever asked
-what to do next, how to earn points, or about a specific challenge.
+The user's current challenges (point-earning tasks) are provided to you in context
+below. Refer to them when asked what to do next, how to earn points, or about a specific
+challenge.
 
 When you name a specific challenge, link to its detail page in markdown:
-`[label](/yorke/challenges/<id>)`, where `<id>` is the bold identifier from the list.
-Prefer linking over just naming. Example:
-`[strip dance — 400 pts](/yorke/challenges/29-strip-dance-goth-girl-style-must)`.
+`[label](https://mattharris.tech/yorke/challenges/<id>)`, where `<id>` is the bold
+identifier from the list. Prefer linking over just naming. Example:
+`[strip dance — 400 pts](https://mattharris.tech/yorke/challenges/29-strip-dance-goth-girl-style-must)`.
 
-Only pass a `url` to `fetch` if the user points you at some other endpoint. No web
-search, shell, or self-modification here.
+No tools, web search, shell, or self-modification here — just conversation.
+
+Answer directly, without a visible chain-of-thought. /no_think
 """
 
 
@@ -165,7 +166,7 @@ async def bootstrap(env: PoiesisEnv | None = None, *, admin_password: str | None
             spice_file.write_text(SPICE_SOUL)
         await store.upsert_channel(
             db, "spice", "spice", soul_path=spice_soul,
-            model=(env.spice_model or None), allowed_tools=["fetch"], engine="openai",
+            model=(env.spice_model or None), allowed_tools=[], engine="openai",
         )
         logger.info("Seeded #spice channel (OpenAI-compatible, %s)", env.spice_base_url)
 
