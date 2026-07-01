@@ -47,12 +47,11 @@ def test_challenges_to_markdown_exact_shape():
     ]
     md = challenges_to_markdown(items)
     lines = md.split("\n")
-    # matches the TS: `- **id** (category: X, N pts[, min ..][, IMPORTANT]): desc`
+    # id dropped for ideation: `- (category: X, N pts[, min ..][, IMPORTANT]): desc`
     assert lines[0] == (
-        "- **29-strip-dance** (category: dare, 400 pts, min 2 people, IMPORTANT): "
-        "strip dance goth girl style"
+        "- (category: dare, 400 pts, min 2 people, IMPORTANT): strip dance goth girl style"
     )
-    assert lines[1] == "- **07-quiet** (category: chill, 50 pts): just vibe"
+    assert lines[1] == "- (category: chill, 50 pts): just vibe"
 
 
 async def test_run_fetch_rejects_bad_url():

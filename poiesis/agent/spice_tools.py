@@ -43,8 +43,10 @@ _MAX_BODY = 20_000  # cap what we feed back to the model (chars)
 
 
 def challenges_to_markdown(items: list[dict[str, Any]]) -> str:
-    """Render a Challenge[] array as markdown. Ported 1:1 from the prior project's
-    `challengesAsMarkdown` — this is the exact shape #spice's `fetch` produces."""
+    """Render a Challenge[] array as reference markdown for ideation.
+
+    Adapted from the prior project's `challengesAsMarkdown`; the opaque `id` slug is
+    dropped — Prompta only needs style/category/points/description to riff on."""
     if not items:
         return "_No challenges defined._"
     lines = []
@@ -55,7 +57,7 @@ def challenges_to_markdown(items: list[dict[str, Any]]) -> str:
         if c.get("important"):
             meta.append("IMPORTANT")
         desc = re.sub(r"\s+", " ", str(c.get("description", ""))).strip()
-        lines.append(f"- **{c.get('id')}** ({', '.join(meta)}): {desc}")
+        lines.append(f"- ({', '.join(meta)}): {desc}")
     return "\n".join(lines)
 
 
