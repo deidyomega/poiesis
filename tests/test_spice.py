@@ -191,4 +191,4 @@ async def test_challenges_injected_into_system_prompt(monkeypatch):
     sys_msg = client.chat.completions.last_messages[0]
     assert sys_msg["role"] == "system"
     assert "- **abc**" in sys_msg["content"]
-    assert "current challenges" in sys_msg["content"].lower()
+    assert "existing challenges" in sys_msg["content"].lower()

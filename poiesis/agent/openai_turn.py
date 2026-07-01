@@ -83,7 +83,8 @@ async def run_openai_turn(
 
     challenges_md = await store.get_setting(db, CHALLENGES_SETTING)
     extra_context = (
-        f"## The user's current challenges (point-earning tasks)\n\n{challenges_md}"
+        "## Existing challenges (reference — match the style, categories, and point "
+        f"scale; don't duplicate)\n\n{challenges_md}"
         if challenges_md else None
     )
 
