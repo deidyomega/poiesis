@@ -150,6 +150,18 @@ async def _coro(v):
     return v
 
 
+# ── model picker presets ─────────────────────────────────────────────────────
+
+def test_model_presets():
+    from poiesis.agent import models
+    p = models.by_id("euryale-l31")
+    assert p["model"] == "sao10k/l3.1-euryale-70b" and "openrouter" in p["base_url"]
+    assert models.by_id("mistral-local")["base_url"].startswith("http://")
+    assert models.by_id("nope") is None
+    assert models.id_for_model("sao10k/l3.1-euryale-70b") == "euryale-l31"
+    assert models.id_for_model("unknown-model") is None
+
+
 # ── challenges injected into the prompt (no tool call) ───────────────────────
 
 class RecordingCompletions:

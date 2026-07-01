@@ -50,6 +50,14 @@
 <div class="flex flex-col h-[calc(100vh-2rem)] lg:h-[calc(100vh-3rem)] min-w-0">
     <div class="flex items-center gap-2 mb-3 shrink-0">
         <h1 class="text-lg font-semibold text-poiesis-text">{{ (channel.name if channel else "general").replace('-', ' ').title() }}</h1>
+        {% if model_options %}
+        <select id="model-select" onchange="setModel(this.value)" title="Model for replies"
+                class="text-xs bg-poiesis-surface border border-poiesis-border rounded-poiesis px-2 py-1 text-poiesis-muted hover:text-poiesis-text focus:outline-none focus:border-poiesis-accent">
+            {% for m in model_options %}
+            <option value="{{ m.id }}" {% if m.id == current_model_id %}selected{% endif %}>{{ m.label }}</option>
+            {% endfor %}
+        </select>
+        {% endif %}
         <form method="post" action="/chat/clear" class="ml-auto">
             <input type="hidden" name="channel_id" value="{{ channel_id }}">
             <button type="submit" onclick="return confirm('Clear this channel?')"
@@ -90,6 +98,16 @@ const stopBtn = document.getElementById('stop-btn');
 let es = null;
 let lastSeen = '';                    // max created_at seen (for the poller)
 const localIds = new Set();           // ids created in this tab (avoid poller dupes)
+
+// Model picker (#spice): persist the chosen model on the channel for subsequent replies.
+function setModel(id){
+    const sel = document.getElementById('model-select');
+    if(sel) sel.disabled = true;
+    fetch(`/chat/${encodeURIComponent(channelId)}/model`, {
+        method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+        body:'model_id='+encodeURIComponent(id)
+    }).catch(()=>{}).finally(()=>{ if(sel) sel.disabled = false; });
+}
 
 const esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const md = t => t ? marked.parse(t) : '';

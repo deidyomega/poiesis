@@ -15,7 +15,7 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 
 from poiesis import store
-from poiesis.agent import run_turn
+from poiesis.agent import models, run_turn
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -85,6 +85,11 @@ async def _render(request: Request, channel_id: str) -> HTMLResponse:
         channel = channels[0]
         channel_id = channel["id"]
     messages = await store.list_messages(db, channel_id) if channel else []
+    # Model picker: only for OpenAI-compatible channels (#spice). Preselect the preset
+    # matching the channel's effective model (channel override, else the env default).
+    show_picker = bool(channel and channel.get("engine") == "openai")
+    env = request.app.state.env
+    current_model = (channel.get("model") if channel else None) or env.spice_model
     return templates.TemplateResponse(
         request,
         "chat.html",
@@ -93,6 +98,8 @@ async def _render(request: Request, channel_id: str) -> HTMLResponse:
             "channel": channel,
             "channel_id": channel_id,
             "messages": messages,
+            "model_options": models.SPICE_MODELS if show_picker else None,
+            "current_model_id": models.id_for_model(current_model) if show_picker else None,
         },
     )
 
@@ -277,6 +284,17 @@ async def transcript(request: Request, message_id: str) -> HTMLResponse:
             "blocks": _parse_transcript(path) if path else [],
         },
     )
+
+
+@router.post("/chat/{channel_id}/model")
+async def set_model(request: Request, channel_id: str, model_id: str = Form(...)):
+    """Point an OpenAI-compatible channel at a picked model/endpoint (from the UI dropdown)."""
+    db = request.app.state.db
+    preset = models.by_id(model_id)
+    if preset is None:
+        return JSONResponse({"error": "unknown model"}, status_code=400)
+    await store.set_channel_model(db, channel_id, preset["model"], preset["base_url"])
+    return JSONResponse({"ok": True, "model": preset["model"], "label": preset["label"]})
 
 
 @router.post("/chat/clear")

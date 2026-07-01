@@ -38,19 +38,30 @@ async def upsert_channel(
     cwd: str | None = None,
     allowed_tools: list[str] | None = None,
     engine: str = "claude",
+    base_url: str | None = None,
 ) -> None:
     now = _now()
     tools_json = json.dumps(allowed_tools) if allowed_tools is not None else None
     await db.execute(
         """
-        INSERT INTO channels (id, name, soul_path, model, cwd, allowed_tools, engine, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO channels (id, name, soul_path, model, cwd, allowed_tools, engine, base_url, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             name=excluded.name, soul_path=excluded.soul_path, model=excluded.model,
             cwd=excluded.cwd, allowed_tools=excluded.allowed_tools, engine=excluded.engine,
-            updated_at=excluded.updated_at
+            base_url=excluded.base_url, updated_at=excluded.updated_at
         """,
-        (channel_id, name, soul_path, model, cwd, tools_json, engine, now, now),
+        (channel_id, name, soul_path, model, cwd, tools_json, engine, base_url, now, now),
+    )
+
+
+async def set_channel_model(
+    db: Database, channel_id: str, model: str, base_url: str | None = None
+) -> None:
+    """Point a channel at a specific model/endpoint (drives the UI model picker)."""
+    await db.execute(
+        "UPDATE channels SET model = ?, base_url = ?, updated_at = ? WHERE id = ?",
+        (model, base_url, _now(), channel_id),
     )
 
 
