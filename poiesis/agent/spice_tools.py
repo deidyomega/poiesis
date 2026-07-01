@@ -13,6 +13,8 @@ from typing import Any
 
 import httpx
 
+from poiesis.config import PoiesisEnv
+
 # OpenAI function-tool schema advertised to the model.
 FETCH_TOOL_SCHEMA: dict[str, Any] = {
     "type": "function",
@@ -20,15 +22,16 @@ FETCH_TOOL_SCHEMA: dict[str, Any] = {
         "name": "fetch",
         "description": (
             "Fetch a URL over HTTP GET and return its body as readable markdown. "
-            "A JSON list of challenges is rendered as the challenge list; other JSON is "
-            "flattened into a markdown outline; non-JSON is returned as truncated text."
+            "Omit `url` to get the user's challenges (the default endpoint). A JSON list "
+            "of challenges renders as the challenge list; other JSON is flattened into a "
+            "markdown outline; non-JSON is returned as truncated text."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "url": {"type": "string", "description": "The URL to GET."},
+                "url": {"type": "string",
+                        "description": "The URL to GET. Omit to fetch the user's challenges."},
             },
-            "required": ["url"],
         },
     },
 }
@@ -99,15 +102,20 @@ def _scalar(v: Any) -> str:
     return str(v)
 
 
-async def run_fetch(arguments: str | dict[str, Any]) -> str:
-    """Execute the `fetch` tool. Returns markdown (or a readable error string)."""
+async def run_fetch(arguments: str | dict[str, Any], env: PoiesisEnv | None = None) -> str:
+    """Execute the `fetch` tool. Returns markdown (or a readable error string).
+
+    With no `url`, falls back to the configured challenges endpoint
+    (POIESIS_SPICE_CHALLENGES_URL) so the model can just "get the challenges".
+    """
     try:
         args = json.loads(arguments) if isinstance(arguments, str) else (arguments or {})
     except json.JSONDecodeError:
         return "⚠️ fetch: could not parse tool arguments as JSON."
-    url = (args or {}).get("url")
+    url = (args or {}).get("url") or getattr(env, "spice_challenges_url", "")
     if not url or not isinstance(url, str):
-        return "⚠️ fetch: missing required `url`."
+        return ("⚠️ fetch: no `url` given and no default challenges endpoint configured "
+                "(set POIESIS_SPICE_CHALLENGES_URL).")
     if not url.startswith(("http://", "https://")):
         return f"⚠️ fetch: `{url}` is not an http(s) URL."
     try:

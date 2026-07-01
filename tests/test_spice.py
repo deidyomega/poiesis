@@ -53,7 +53,7 @@ def test_challenges_to_markdown_exact_shape():
 
 async def test_run_fetch_rejects_bad_url():
     assert "not an http" in await run_fetch('{"url": "ftp://x"}')
-    assert "missing required" in await run_fetch("{}")
+    assert "POIESIS_SPICE_CHALLENGES_URL" in await run_fetch("{}")  # no url, no default
     assert "could not parse" in await run_fetch("{not json")
 
 
@@ -130,7 +130,7 @@ async def test_full_turn_with_tool_call(monkeypatch):
     ]
     monkeypatch.setattr(openai_turn, "AsyncOpenAI", lambda **k: FakeClient(rounds))
     monkeypatch.setitem(openai_turn._TOOL_RUNNERS, "fetch",
-                        lambda args: _coro("FETCHED: " + args))
+                        lambda args, env: _coro("FETCHED: " + args))
 
     evs = await _drain(run_openai_turn(
         db=FakeDB(), channel={"id": "spice", "soul_path": None}, history=[],

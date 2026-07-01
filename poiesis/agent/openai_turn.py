@@ -145,7 +145,7 @@ async def run_openai_turn(
             for idx in sorted(tool_acc):
                 acc = tool_acc[idx]
                 runner = _TOOL_RUNNERS.get(acc["name"])
-                result = (await runner(acc["args"])) if runner \
+                result = (await runner(acc["args"], env)) if runner \
                     else f"⚠️ unknown tool: {acc['name']}"
                 seg = call_segs.get(acc["id"])
                 if seg:

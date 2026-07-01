@@ -52,6 +52,10 @@ class PoiesisEnv(BaseSettings):
     spice_api_key: str = ""
     spice_base_url: str = "https://api.featherless.ai/v1"
     spice_model: str = ""  # e.g. "moonshotai/Kimi-K2-Instruct"; channel.model overrides
+    # Default endpoint for #spice's `fetch` tool when called without a url — the
+    # challenges JSON. Naive GET for now (CF Access lets the server's own IP through);
+    # add a token seam here if that changes.
+    spice_challenges_url: str = ""
 
     def effective_session_secret(self) -> str:
         """Return a stable session secret, persisting a generated one if unset.
