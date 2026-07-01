@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Transcript — {{ theme.app_name }}{% endblock %}
+
+{% block head %}
+<style>
+    .tx-block{border-left:3px solid {{ theme.colors.border }};padding:.4em .75em;margin:.5em 0;border-radius:4px;background:rgba(0,0,0,.1)}
+    .tx-block .tx-label{font-weight:600;font-size:.7em;text-transform:uppercase;opacity:.65;margin-bottom:.25em}
+    .tx-block pre{white-space:pre-wrap;word-break:break-word;font-size:.82em;margin:0;font-family:ui-monospace,monospace}
+    .tx-prompt{border-left-color:{{ theme.colors.muted }}}
+    .tx-reply{border-left-color:{{ theme.colors.success }}}
+    .tx-thinking{border-left-color:{{ theme.colors.muted }};opacity:.75;font-style:italic}
+    .tx-tool{border-left-color:{{ theme.colors.accent }}}
+    .tx-result{border-left-color:{{ theme.colors.warning }}}
+    .tx-user{border-left-color:{{ theme.colors.muted }}}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto space-y-3">
+    <div class="flex items-center gap-3">
+        <a href="/c/{{ message.channel_id }}" class="text-poiesis-muted hover:text-poiesis-text text-sm">← Back to chat</a>
+        <h1 class="text-lg font-semibold text-poiesis-text">Raw transcript</h1>
+    </div>
+    <div class="text-xs text-poiesis-muted font-mono break-all">
+        {% if session_id %}session {{ session_id }}{% else %}no session id recorded for this message{% endif %}
+        {% if path %}<br>{{ path }}{% endif %}
+    </div>
+
+    {% if blocks %}
+        {% for b in blocks %}
+        <div class="tx-block tx-{{ b.who }}">
+            <div class="tx-label">{{ b.label }}</div>
+            <pre>{{ b.body }}</pre>
+        </div>
+        {% endfor %}
+    {% elif session_id %}
+        <p class="text-sm text-poiesis-muted">Session id recorded, but no <code>{{ session_id }}.jsonl</code>
+        found under <code>~/.claude/projects/</code> — it may have been cleaned up.</p>
+    {% else %}
+        <p class="text-sm text-poiesis-muted">No transcript for this turn. Only agent messages
+        produced after session-capture shipped have one; older turns predate it.</p>
+    {% endif %}
+</div>
+{% endblock %}

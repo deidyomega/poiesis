@@ -65,7 +65,8 @@
         <div class="flex {% if m.role=='user' %}justify-end{% else %}justify-start{% endif %}" data-msg-id="{{ m.id }}" data-ts="{{ m.created_at }}">
             <div class="max-w-[85%] px-4 py-2.5 rounded-poiesis text-sm leading-relaxed msg-markdown overflow-x-auto
                         {% if m.role=='user' %}bg-poiesis-accent text-white msg-user{% elif m.role=='system' %}bg-poiesis-warning/20 border border-poiesis-warning/30{% else %}bg-poiesis-surface border border-poiesis-border{% endif %}"
-                 data-raw="{{ m.content|e }}" {% if m.segments %}data-segments='{{ m.segments|tojson }}'{% endif %}>{{ m.content }}</div>
+                 data-raw="{{ m.content|e }}" data-role="{{ m.role }}" data-session-id="{{ m.session_id or '' }}"
+                 {% if m.segments %}data-segments='{{ m.segments|tojson }}'{% endif %}>{{ m.content }}</div>
         </div>
         {% endfor %}
     </div>
@@ -93,6 +94,10 @@ const localIds = new Set();           // ids created in this tab (avoid poller d
 const esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const md = t => t ? marked.parse(t) : '';
 const scroll = () => { list.scrollTop = list.scrollHeight; };
+// "raw transcript" link for an agent turn (only if a session id was captured).
+const transcriptLink = (msgId, sid) => sid
+    ? `<div class="mt-1"><a href="/transcript/${encodeURIComponent(msgId)}" target="_blank" class="text-xs text-poiesis-muted hover:text-poiesis-accent">⋯ raw transcript</a></div>`
+    : '';
 const known = id => id && (localIds.has(id) || document.querySelector(`[data-msg-id="${id}"]`));
 
 // Render one collapsed box for a run of consecutive thinking/tool steps.
@@ -157,6 +162,7 @@ function appendMessage(m){
     if(m.created_at) wrap.dataset.ts = m.created_at;
     if(m.segments && m.segments.length) b.innerHTML = renderSegments(m.segments);
     else b.innerHTML = (m.notification ? '<span class="notif-dot"></span>' : '') + md(m.content);
+    if(m.role==='agent') b.innerHTML += transcriptLink(m.id, m.session_id);
     if(m.notification) fireNotification(m);
 }
 
@@ -174,6 +180,7 @@ document.querySelectorAll('#message-list [data-msg-id]').forEach(w => {
     if(el){
         if(el.dataset.segments){ try{ const s=JSON.parse(el.dataset.segments); if(s&&s.length){ el.innerHTML=renderSegments(s); } else el.innerHTML=md(el.dataset.raw); }catch(e){ el.innerHTML=md(el.dataset.raw); } }
         else el.innerHTML = md(el.dataset.raw);
+        if(el.dataset.role==='agent' && el.dataset.sessionId) el.innerHTML += transcriptLink(w.dataset.msgId, el.dataset.sessionId);
     }
     if(w.dataset.ts && w.dataset.ts > lastSeen) lastSeen = w.dataset.ts;
 });
@@ -210,6 +217,7 @@ async function send(){
             if(ev.segments && ev.segments.length) a.b.innerHTML = renderSegments(ev.segments);
             else a.b.innerHTML = md(ev.content||acc);
             if(ev.cancelled) a.b.innerHTML += '<div class="text-xs text-poiesis-muted mt-1 italic">Stopped</div>';
+            a.b.innerHTML += transcriptLink(a.wrap.dataset.msgId, ev.session_id);
             es.close(); es=null; setGenerating(false); scroll(); pollDeploys();
         }
     };

@@ -87,6 +87,7 @@ async def run_turn(
     content = ""
     usage: dict[str, Any] = {}
     cancelled = False
+    session_id: str | None = None
 
     try:
         async for msg in query(prompt=prompt, options=options):
@@ -166,10 +167,11 @@ async def run_turn(
                 u = getattr(msg, "usage", None)
                 if isinstance(u, dict):
                     usage = u
+                session_id = getattr(msg, "session_id", None) or session_id
 
     except Exception as e:  # noqa: BLE001 — surface any SDK/runtime failure to the UI
-        logger.exception("agent turn failed")
-        yield {"type": "error", "message": f"{type(e).__name__}: {e}"}
+        logger.exception("agent turn failed (session=%s)", session_id)
+        yield {"type": "error", "message": f"{type(e).__name__}: {e}", "session_id": session_id}
         return
 
     # Drop empty text/thinking segments — the SDK emits redacted (text-less)
@@ -185,4 +187,5 @@ async def run_turn(
         "segments": segments,
         "usage": usage,
         "cancelled": cancelled,
+        "session_id": session_id,
     }

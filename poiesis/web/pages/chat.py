@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import re
 import time
 from contextlib import aclosing
+from pathlib import Path
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
@@ -18,9 +20,58 @@ router = APIRouter()
 
 DEFAULT_CHANNEL = "general"
 
+# Where the Agent SDK writes per-turn session transcripts (one <session_id>.jsonl each,
+# under a per-cwd project dir). We glob by session id, so the dir escaping doesn't matter.
+CLAUDE_PROJECTS = Path.home() / ".claude" / "projects"
+_SESSION_RE = re.compile(r"^[A-Za-z0-9-]+$")  # guard glob against pattern injection
+
 
 def _sse(obj: dict) -> str:
     return f"data: {json.dumps(obj)}\n\n"
+
+
+def _find_transcript(session_id: str | None) -> Path | None:
+    if not session_id or not _SESSION_RE.match(session_id):
+        return None
+    hits = sorted(CLAUDE_PROJECTS.glob(f"*/{session_id}.jsonl"))
+    return hits[0] if hits else None
+
+
+def _parse_transcript(path: Path) -> list[dict]:
+    """Flatten a session .jsonl into display blocks: prompt / thinking / tool / result / reply."""
+    blocks: list[dict] = []
+    for line in path.read_text().splitlines():
+        try:
+            o = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if o.get("type") not in ("user", "assistant"):
+            continue
+        content = o.get("message", {}).get("content")
+        if isinstance(content, str):
+            if content.strip():
+                blocks.append({"who": o["type"], "label": o["type"], "body": content})
+            continue
+        if not isinstance(content, list):
+            continue
+        for b in content:
+            if not isinstance(b, dict):
+                continue
+            bt = b.get("type")
+            if bt == "text" and (b.get("text") or "").strip():
+                who = o["type"]
+                blocks.append({"who": who, "label": "prompt" if who == "user" else "reply", "body": b["text"]})
+            elif bt == "thinking" and (b.get("thinking") or "").strip():
+                blocks.append({"who": "thinking", "label": "thinking", "body": b["thinking"]})
+            elif bt == "tool_use":
+                blocks.append({"who": "tool", "label": f"tool · {b.get('name', '?')}",
+                               "body": json.dumps(b.get("input", {}), indent=2)})
+            elif bt == "tool_result":
+                c = b.get("content")
+                if isinstance(c, list):
+                    c = "\n".join(x.get("text", "") if isinstance(x, dict) else str(x) for x in c)
+                blocks.append({"who": "result", "label": "result", "body": str(c)})
+    return blocks
 
 
 async def _render(request: Request, channel_id: str) -> HTMLResponse:
@@ -90,6 +141,8 @@ async def stream(request: Request, agent_msg_id: str):
         accumulated = ""
         segments = None
         cancelled = False
+        session_id = None
+        error_msg = None
         last_persist = 0.0
 
         # Run the turn in a producer task feeding a queue, so the SSE loop can emit
@@ -137,11 +190,14 @@ async def stream(request: Request, agent_msg_id: str):
                 elif t == "tool_result":
                     yield _sse({"t": "tool_result", "name": ev["name"]})
                 elif t == "error":
-                    yield _sse({"t": "error", "message": ev["message"]})
+                    error_msg = ev["message"]
+                    session_id = ev.get("session_id") or session_id
+                    yield _sse({"t": "error", "message": error_msg})
                 elif t == "done":
                     accumulated = ev["content"] or accumulated
                     segments = ev["segments"]
                     cancelled = ev["cancelled"]
+                    session_id = ev.get("session_id") or session_id
                 now = time.time()
                 if now - last_persist > 0.6:
                     await store.update_message(db, agent_msg_id, content=accumulated)
@@ -150,10 +206,16 @@ async def stream(request: Request, agent_msg_id: str):
             producer.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await producer
+            # If the turn errored with nothing usable captured, save the error text so the
+            # bubble shows what went wrong instead of a silent blank (the old failure mode).
+            if error_msg and not (accumulated or "").strip():
+                accumulated = f"⚠️ Turn failed: {error_msg}"
             await store.update_message(
-                db, agent_msg_id, content=accumulated, segments=segments, cancelled=cancelled
+                db, agent_msg_id, content=accumulated, segments=segments,
+                cancelled=cancelled, session_id=session_id,
             )
-        yield _sse({"t": "done", "content": accumulated, "segments": segments, "cancelled": cancelled})
+        yield _sse({"t": "done", "content": accumulated, "segments": segments,
+                    "cancelled": cancelled, "session_id": session_id})
 
     return StreamingResponse(
         gen(),
@@ -176,6 +238,27 @@ async def channel_messages(request: Request, channel_id: str, after: str = "") -
     db = request.app.state.db
     rows = await store.messages_after(db, channel_id, after)
     return JSONResponse({"messages": rows})
+
+
+@router.get("/transcript/{message_id}", response_class=HTMLResponse)
+async def transcript(request: Request, message_id: str) -> HTMLResponse:
+    """Full raw Agent-SDK transcript for one agent turn (untruncated tool I/O + thinking)."""
+    db = request.app.state.db
+    m = await store.get_message(db, message_id)
+    if m is None:
+        return HTMLResponse("<h1>404</h1><p>Unknown message.</p>", status_code=404)
+    sid = m.get("session_id")
+    path = _find_transcript(sid)
+    return request.app.state.templates.TemplateResponse(
+        request,
+        "transcript.html",
+        {
+            "message": m,
+            "session_id": sid,
+            "path": str(path) if path else None,
+            "blocks": _parse_transcript(path) if path else [],
+        },
+    )
 
 
 @router.post("/chat/clear")

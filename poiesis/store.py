@@ -115,6 +115,7 @@ async def update_message(
     content: str | None = None,
     segments: list[dict[str, Any]] | None = None,
     cancelled: bool | None = None,
+    session_id: str | None = None,
 ) -> None:
     sets, params = [], []
     if content is not None:
@@ -126,6 +127,9 @@ async def update_message(
     if cancelled is not None:
         sets.append("cancelled = ?")
         params.append(1 if cancelled else 0)
+    if session_id is not None:
+        sets.append("session_id = ?")
+        params.append(session_id)
     if not sets:
         return
     params.append(message_id)
