@@ -2,21 +2,25 @@
 #
 # cloudflared dials OUT to Cloudflare's edge — no inbound ports, no port-forward,
 # ISP port-80 blocks irrelevant. Cloudflare terminates TLS and routes the hostname
-# to the local app on 127.0.0.1:8080.
+# to the app.
+#
+# This config lives on the box running cloudflared (a *separate* LAN host here), so the
+# service target is the Poiesis app box by LAN IP (192.168.1.6:8000), not localhost.
+# The app binds 0.0.0.0, so it's reachable across the LAN.
 #
 # Setup (see deploy/README.md §3):
 #   cloudflared tunnel login
 #   cloudflared tunnel create poiesis              # note the tunnel ID + creds path
-#   cloudflared tunnel route dns poiesis agent.mattharris.tech
+#   cloudflared tunnel route dns poiesis agents.mattharris.tech
 #   sudo cp deploy/cloudflared-config.yml /etc/cloudflared/config.yml   # after editing below
 #   sudo cloudflared service install
 #
-# Edit the two values below to match `tunnel create` output.
+# Edit the credentials-file below to match `tunnel create` output (the tunnel UUID).
 
 tunnel: poiesis
-credentials-file: /home/matt/.cloudflared/<TUNNEL_ID>.json
+credentials-file: /home/omega/.cloudflared/<TUNNEL_ID>.json
 
 ingress:
-  - hostname: agent.mattharris.tech
-    service: http://localhost:8080
+  - hostname: agents.mattharris.tech
+    service: http://192.168.1.6:8000     # the Poiesis app box on the LAN
   - service: http_status:404
