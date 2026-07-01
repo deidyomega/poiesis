@@ -6,7 +6,7 @@ import types
 
 from poiesis.agent import openai_turn
 from poiesis.agent.openai_turn import run_openai_turn
-from poiesis.agent.spice_tools import json_to_markdown, run_fetch
+from poiesis.agent.spice_tools import challenges_to_markdown, json_to_markdown, run_fetch
 
 
 class FakeDB:
@@ -30,6 +30,25 @@ def test_json_to_markdown_nested():
 def test_json_to_markdown_empties():
     assert "_(empty object)_" in json_to_markdown({})
     assert "_(empty list)_" in json_to_markdown([])
+
+
+def test_challenges_to_markdown_exact_shape():
+    assert challenges_to_markdown([]) == "_No challenges defined._"
+    items = [
+        {"id": "29-strip-dance", "category": "dare", "point_value": 400,
+         "important": True, "min_req": "2 people",
+         "description": "strip   dance\n goth  girl style"},
+        {"id": "07-quiet", "category": "chill", "point_value": 50,
+         "important": False, "description": "just  vibe"},
+    ]
+    md = challenges_to_markdown(items)
+    lines = md.split("\n")
+    # matches the TS: `- **id** (category: X, N pts[, min ..][, IMPORTANT]): desc`
+    assert lines[0] == (
+        "- **29-strip-dance** (category: dare, 400 pts, min 2 people, IMPORTANT): "
+        "strip dance goth girl style"
+    )
+    assert lines[1] == "- **07-quiet** (category: chill, 50 pts): just vibe"
 
 
 async def test_run_fetch_rejects_bad_url():

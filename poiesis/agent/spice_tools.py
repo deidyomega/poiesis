@@ -8,6 +8,7 @@ the model can actually read the payload instead of a wall of braces.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 import httpx
@@ -19,8 +20,8 @@ FETCH_TOOL_SCHEMA: dict[str, Any] = {
         "name": "fetch",
         "description": (
             "Fetch a URL over HTTP GET and return its body as readable markdown. "
-            "Best for JSON APIs/endpoints — the JSON is flattened into markdown. "
-            "Non-JSON responses are returned as truncated text."
+            "A JSON list of challenges is rendered as the challenge list; other JSON is "
+            "flattened into a markdown outline; non-JSON is returned as truncated text."
         ),
         "parameters": {
             "type": "object",
@@ -33,6 +34,31 @@ FETCH_TOOL_SCHEMA: dict[str, Any] = {
 }
 
 _MAX_BODY = 20_000  # cap what we feed back to the model (chars)
+
+
+def challenges_to_markdown(items: list[dict[str, Any]]) -> str:
+    """Render a Challenge[] array as markdown. Ported 1:1 from the prior project's
+    `challengesAsMarkdown` — this is the exact shape #spice's `fetch` produces."""
+    if not items:
+        return "_No challenges defined._"
+    lines = []
+    for c in items:
+        meta = [f"category: {c.get('category')}", f"{c.get('point_value')} pts"]
+        if c.get("min_req"):
+            meta.append(f"min {c['min_req']}")
+        if c.get("important"):
+            meta.append("IMPORTANT")
+        desc = re.sub(r"\s+", " ", str(c.get("description", ""))).strip()
+        lines.append(f"- **{c.get('id')}** ({', '.join(meta)}): {desc}")
+    return "\n".join(lines)
+
+
+def _looks_like_challenges(data: Any) -> bool:
+    return (
+        isinstance(data, list) and bool(data)
+        and all(isinstance(x, dict) for x in data)
+        and any(("point_value" in x or "category" in x) for x in data)
+    )
 
 
 def json_to_markdown(value: Any, depth: int = 0, max_depth: int = 6) -> str:
@@ -94,8 +120,11 @@ async def run_fetch(arguments: str | dict[str, Any]) -> str:
     ctype = resp.headers.get("content-type", "")
     if "json" in ctype or body.strip()[:1] in ("{", "["):
         try:
-            md = json_to_markdown(json.loads(body))
-            return f"{status}\n\n{md[:_MAX_BODY]}"
+            data = json.loads(body)
         except json.JSONDecodeError:
-            pass
+            data = None
+        if data is not None:
+            md = challenges_to_markdown(data) if _looks_like_challenges(data) \
+                else json_to_markdown(data)
+            return f"{status}\n\n{md[:_MAX_BODY]}"
     return f"{status}\n\n{body[:_MAX_BODY]}"
