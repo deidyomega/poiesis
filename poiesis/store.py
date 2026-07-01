@@ -37,18 +37,20 @@ async def upsert_channel(
     model: str | None = None,
     cwd: str | None = None,
     allowed_tools: list[str] | None = None,
+    engine: str = "claude",
 ) -> None:
     now = _now()
     tools_json = json.dumps(allowed_tools) if allowed_tools is not None else None
     await db.execute(
         """
-        INSERT INTO channels (id, name, soul_path, model, cwd, allowed_tools, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO channels (id, name, soul_path, model, cwd, allowed_tools, engine, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             name=excluded.name, soul_path=excluded.soul_path, model=excluded.model,
-            cwd=excluded.cwd, allowed_tools=excluded.allowed_tools, updated_at=excluded.updated_at
+            cwd=excluded.cwd, allowed_tools=excluded.allowed_tools, engine=excluded.engine,
+            updated_at=excluded.updated_at
         """,
-        (channel_id, name, soul_path, model, cwd, tools_json, now, now),
+        (channel_id, name, soul_path, model, cwd, tools_json, engine, now, now),
     )
 
 

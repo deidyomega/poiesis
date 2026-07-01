@@ -47,6 +47,12 @@ class PoiesisEnv(BaseSettings):
     # Timezone for scheduled tasks (e.g. the PM 10am nudge). IANA name, e.g. "America/New_York".
     tz: str = "UTC"
 
+    # #spice: an OpenAI-compatible provider (Featherless by default), used instead of
+    # the Claude Agent SDK for that one channel. Key goes in ~/.poiesis/.env.
+    spice_api_key: str = ""
+    spice_base_url: str = "https://api.featherless.ai/v1"
+    spice_model: str = ""  # e.g. "moonshotai/Kimi-K2-Instruct"; channel.model overrides
+
     def effective_session_secret(self) -> str:
         """Return a stable session secret, persisting a generated one if unset.
 

@@ -36,6 +36,20 @@ MEMORY_TOOLS = [
     "mcp__poiesis__remember", "mcp__poiesis__recall", "mcp__poiesis__write_journal",
 ]
 
+SPICE_SOUL = """\
+# Poiesis — spice
+
+You are Poiesis running on an open model via an OpenAI-compatible provider — off the
+Claude rails, for when the user wants a different flavor. Be direct and useful; don't
+moralize or hedge unnecessarily.
+
+- You have exactly one tool, `fetch`: give it a URL and it returns the page as markdown
+  (JSON gets flattened into a readable outline). Reach for it whenever the user points
+  you at an API or asks for data behind an HTTP endpoint.
+- No web search, no shell, no self-modification here — just conversation and `fetch`.
+- Keep replies tight and skip filler.
+"""
+
 
 def _write_env(updates: dict[str, str], *, overwrite: bool) -> None:
     """Create/update ~/.poiesis/.env. With overwrite=False, only adds missing keys."""
@@ -126,6 +140,21 @@ async def bootstrap(env: PoiesisEnv | None = None, *, admin_password: str | None
                 db, cid, cid, soul_path=soul, model="sonnet", allowed_tools=MEMORY_TOOLS
             )
             logger.info("Seeded #%s channel", cid)
+
+    # #spice: runs on an OpenAI-compatible provider (Featherless) instead of the
+    # Claude SDK, with exactly one tool (`fetch`). Model + key come from env
+    # (POIESIS_SPICE_MODEL / POIESIS_SPICE_API_KEY).
+    if await store.get_channel(db, "spice") is None:
+        spice_soul = "souls/spice.md"
+        spice_file = Path(env.repo_root) / spice_soul
+        if not spice_file.exists():
+            spice_file.parent.mkdir(parents=True, exist_ok=True)
+            spice_file.write_text(SPICE_SOUL)
+        await store.upsert_channel(
+            db, "spice", "spice", soul_path=spice_soul,
+            model=(env.spice_model or None), allowed_tools=["fetch"], engine="openai",
+        )
+        logger.info("Seeded #spice channel (OpenAI-compatible, %s)", env.spice_base_url)
 
     if (
         gitops.has_git(env.repo_root)

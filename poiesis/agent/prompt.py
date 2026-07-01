@@ -30,12 +30,18 @@ def _current_time(tz: str) -> str:
     return datetime.now(zone).strftime("%A, %B %-d, %Y at %-I:%M %p %Z")
 
 
-def build_system_prompt(soul: str | None, memories: list[dict[str, Any]], tz: str = "UTC") -> str:
+def build_system_prompt(
+    soul: str | None,
+    memories: list[dict[str, Any]],
+    tz: str = "UTC",
+    tool_guidance: str | None = TOOL_GUIDANCE,
+) -> str:
     parts: list[str] = [(soul or "").strip() or DEFAULT_SOUL]
     if memories:
         lines = "\n".join(f"- {m['content']}" for m in memories)
         parts.append(f"## What you remember about the user\n{lines}")
-    parts.append(TOOL_GUIDANCE)
+    if tool_guidance:
+        parts.append(tool_guidance)
     # Volatile, so it goes last (keeps the stable prefix cache-friendly).
     parts.append(
         f"## Right now\nIt is {_current_time(tz)}. Factor the time of day into your replies."
