@@ -205,15 +205,26 @@ async function send(){
         localIds.add(j.user_id); localIds.add(j.agent_id);
     }catch(e){ a.b.innerHTML='<span class="text-poiesis-error text-sm">Failed to send.</span>'; setGenerating(false); return; }
 
-    let acc=''; let toolNote='';
+    // Build the streaming view from ordered segments so tool chips render in place
+    // (arrival order) instead of being pinned below the text and snapping into
+    // position only on `done`. Mirrors renderSegments, so there's no reflow at the end.
+    let acc=''; const streamSegs=[];
+    const pushText = d => {
+        const last = streamSegs[streamSegs.length-1];
+        if(last && last.type==='text') last.content += d; else streamSegs.push({type:'text', content:d});
+    };
+    const paintStream = () => {
+        a.b.innerHTML = renderSegments(streamSegs)
+            || '<div class="thinking-dots"><span></span><span></span><span></span></div>';
+        scroll();
+    };
     es = new EventSource(`/chat/stream/${agentId}`);
     es.onmessage = (e) => {
         const ev = JSON.parse(e.data);
-        if(ev.t==='text'){ acc += ev.delta; a.b.innerHTML = md(acc) + toolNote; scroll(); }
-        else if(ev.t==='tool'){ toolNote = `<div class="text-xs text-poiesis-muted mt-1">🔧 ${esc(ev.name)}…</div>`; a.b.innerHTML = md(acc) + toolNote; scroll(); }
+        if(ev.t==='text'){ acc += ev.delta; pushText(ev.delta); paintStream(); }
+        else if(ev.t==='tool'){ streamSegs.push({type:'tool_call', name:ev.name, args_summary:'', result_summary:''}); paintStream(); }
         else if(ev.t==='error'){ a.b.innerHTML = `<span class="text-poiesis-error">${esc(ev.message)}</span>`; }
         else if(ev.t==='done'){
-            toolNote='';
             if(ev.segments && ev.segments.length) a.b.innerHTML = renderSegments(ev.segments);
             else a.b.innerHTML = md(ev.content||acc);
             if(ev.cancelled) a.b.innerHTML += '<div class="text-xs text-poiesis-muted mt-1 italic">Stopped</div>';
