@@ -4,7 +4,7 @@
 <aside id="sidebar" class="fixed top-0 left-0 h-screen w-64 bg-poiesis-surface border-r border-poiesis-border flex flex-col z-40 transition-transform duration-200 -translate-x-full lg:translate-x-0">
     <!-- Branding -->
     <div class="p-4 border-b border-poiesis-border flex items-center justify-between">
-        <a href="/" class="flex items-center gap-2 text-lg font-semibold text-poiesis-text hover:text-poiesis-accent transition-colors">
+        <a href="/" draggable="false" class="flex items-center gap-2 text-lg font-semibold text-poiesis-text hover:text-poiesis-accent transition-colors select-none">
             <span class="text-2xl">{{ theme.app_icon }}</span>
             <span>{{ theme.app_name }}</span>
         </a>
@@ -22,9 +22,9 @@
             {% set href = '/c/' + c.id %}
             {% set active = (path == href) or (path == '/' and c.id == 'general') %}
             <li>
-                <a href="{{ href }}"
+                <a href="{{ href }}" draggable="false"
                    onclick="if(window.innerWidth < 1024) toggleSidebar()"
-                   class="flex items-center gap-2 px-2 py-1.5 rounded-poiesis text-sm transition-colors
+                   class="flex items-center gap-2 px-2 py-1.5 rounded-poiesis text-sm transition-colors select-none cursor-pointer
                           {% if active %}bg-poiesis-accent/20 text-poiesis-accent font-medium{% else %}text-poiesis-text hover:bg-poiesis-border/50 hover:text-poiesis-accent{% endif %}">
                     <span>{{ c.name.replace('-', ' ').title() }}</span>
                 </a>
@@ -36,8 +36,8 @@
     <!-- Footer: Settings -->
     <div class="p-3 border-t border-poiesis-border">
         {% set on_settings = request and request.url.path == '/settings' %}
-        <a href="/settings"
-           class="flex items-center gap-2 px-2 py-1.5 rounded-poiesis text-sm transition-colors
+        <a href="/settings" draggable="false"
+           class="flex items-center gap-2 px-2 py-1.5 rounded-poiesis text-sm transition-colors select-none cursor-pointer
                   {% if on_settings %}bg-poiesis-accent/20 text-poiesis-accent{% else %}text-poiesis-muted hover:bg-poiesis-border/50 hover:text-poiesis-accent{% endif %}">
             <span>⚙️</span><span>Settings</span>
         </a>
