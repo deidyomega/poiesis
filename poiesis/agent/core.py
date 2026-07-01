@@ -67,10 +67,22 @@ async def run_turn(
     else:
         allowed = (CODING_TOOLS + MCP_TOOLS) if channel.get("cwd") else list(MCP_TOOLS)
 
+    # The SDK loads the bundled CLI's FULL default toolset (WebFetch, WebSearch,
+    # Task subagents, Cron, ToolSearch, Skill, …) whenever `tools` is left None —
+    # and bypassPermissions means `allowed_tools` won't gate them, so the model can
+    # call anything. Worse, with that many tools the CLI *defers* our own MCP tools
+    # behind ToolSearch, adding a round-trip that has been landing blank turns.
+    # Pin the built-in capability set to exactly the non-MCP tools we grant
+    # (empty list ⇒ MCP-only), and drop skills/subagents entirely.
+    builtin_tools = [t for t in allowed if not t.startswith("mcp__")]
+
     options = ClaudeAgentOptions(
         system_prompt=system_prompt,
         mcp_servers={SERVER_NAME: server},
+        tools=builtin_tools,
         allowed_tools=allowed,
+        skills=None,
+        agents={},
         permission_mode="bypassPermissions",
         cwd=str(channel.get("cwd") or repo_root),
         include_partial_messages=True,
