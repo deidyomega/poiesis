@@ -59,14 +59,12 @@ async def run_openai_turn(
     tz: str = "UTC",
 ) -> AsyncIterator[dict[str, Any]]:
     env = PoiesisEnv()
-    api_key = env.spice_api_key
+    # Local OpenAI-compatible servers (Ollama) need no key, but the client still wants a
+    # non-empty string — fall back to a harmless placeholder.
+    api_key = env.spice_api_key or "ollama"
     base_url = channel.get("base_url") or env.spice_base_url
     model = channel.get("model") or env.spice_model
 
-    if not api_key:
-        yield {"type": "error", "message": "#spice isn't configured: set POIESIS_SPICE_API_KEY "
-               "in ~/.poiesis/.env.", "session_id": None}
-        return
     if not model:
         yield {"type": "error", "message": "#spice has no model: set POIESIS_SPICE_MODEL in "
                "~/.poiesis/.env (or the channel's model).", "session_id": None}

@@ -59,18 +59,9 @@ async def test_run_fetch_rejects_bad_url():
 
 # ── config guards ────────────────────────────────────────────────────────────
 
-async def test_turn_errors_without_api_key(monkeypatch):
-    monkeypatch.setenv("POIESIS_SPICE_API_KEY", "")
-    monkeypatch.setenv("POIESIS_SPICE_MODEL", "m")
-    evs = await _drain(run_openai_turn(
-        db=FakeDB(), channel={"id": "spice", "soul_path": None}, history=[],
-        user_message="hi", message_id="x",
-    ))
-    assert evs[0]["type"] == "error" and "POIESIS_SPICE_API_KEY" in evs[0]["message"]
-
-
 async def test_turn_errors_without_model(monkeypatch):
-    monkeypatch.setenv("POIESIS_SPICE_API_KEY", "k")
+    # key is optional for local servers; the model guard still returns before any network
+    monkeypatch.setenv("POIESIS_SPICE_API_KEY", "")
     monkeypatch.setenv("POIESIS_SPICE_MODEL", "")
     evs = await _drain(run_openai_turn(
         db=FakeDB(), channel={"id": "spice", "soul_path": None, "model": None}, history=[],

@@ -47,11 +47,12 @@ class PoiesisEnv(BaseSettings):
     # Timezone for scheduled tasks (e.g. the PM 10am nudge). IANA name, e.g. "America/New_York".
     tz: str = "UTC"
 
-    # #spice: an OpenAI-compatible provider (Featherless by default), used instead of
-    # the Claude Agent SDK for that one channel. Key goes in ~/.poiesis/.env.
+    # #spice: any OpenAI-compatible provider, used instead of the Claude Agent SDK for
+    # that one channel. Defaults suit a local Ollama; override per-machine in .env.
+    # api_key is optional for local servers (Ollama ignores it).
     spice_api_key: str = ""
-    spice_base_url: str = "https://api.featherless.ai/v1"
-    spice_model: str = "dphn/Dolphin-Mistral-24B-Venice-Edition"  # POIESIS_SPICE_MODEL overrides
+    spice_base_url: str = "http://localhost:11434/v1"
+    spice_model: str = ""  # e.g. an Ollama model like "qwen3.6:latest"; set POIESIS_SPICE_MODEL
     # Default endpoint for #spice's `fetch` tool when called without a url — the
     # challenges JSON. Naive GET for now (CF Access lets the server's own IP through);
     # add a token seam here if that changes.
