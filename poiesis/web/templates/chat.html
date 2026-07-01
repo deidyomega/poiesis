@@ -24,6 +24,19 @@
     .seg-tool summary{cursor:pointer;color:{{ theme.colors.accent }};font-weight:500}
     .seg-tool pre{white-space:pre-wrap;margin:.2em 0;max-height:10em;overflow:auto;font-size:.85em}
     .seg-label{font-weight:600;font-size:.7em;text-transform:uppercase;opacity:.6}
+    /* Grouped "work" run: all consecutive thinking/tool steps collapse as one unit. */
+    .seg-group{border:1px solid {{ theme.colors.border }};border-radius:6px;margin:.4em 0;background:rgba(0,0,0,.1)}
+    .seg-group>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:.5em;padding:.4em .7em;font-size:.85em}
+    .seg-group>summary::-webkit-details-marker{display:none}
+    .seg-group>summary::before{content:'▸';color:{{ theme.colors.muted }};transition:transform .15s ease}
+    .seg-group[open]>summary::before{transform:rotate(90deg)}
+    .seg-group-label{color:{{ theme.colors.accent }};font-weight:500}
+    .seg-group-count{color:{{ theme.colors.muted }};font-size:.9em}
+    .seg-group-body{padding:.1em .7em .4em;border-top:1px solid {{ theme.colors.border }}}
+    .work-step{padding:.35em 0}
+    .work-step + .work-step{border-top:1px dashed {{ theme.colors.border }}}
+    .work-tool{color:{{ theme.colors.accent }};font-weight:500;font-size:.85em}
+    .work-step pre{white-space:pre-wrap;margin:.2em 0;max-height:10em;overflow:auto;font-size:.85em;opacity:.85}
     .deploy-card{border:1px solid {{ theme.colors.border }};border-radius:8px;padding:.6em .8em;margin:.5em 0;font-size:.85em;background:{{ theme.colors.surface }}}
     .deploy-step{display:inline-flex;align-items:center;gap:.3em;margin-right:.6em;opacity:.5}
     .deploy-step.active{opacity:1;color:{{ theme.colors.accent }}}
@@ -82,18 +95,46 @@ const md = t => t ? marked.parse(t) : '';
 const scroll = () => { list.scrollTop = list.scrollHeight; };
 const known = id => id && (localIds.has(id) || document.querySelector(`[data-msg-id="${id}"]`));
 
-function renderSegments(segs){
-    let h='';
-    for(const s of segs){
-        if(s.type==='text'){ if(!(s.content||'').trim()) continue; h += `<div class="msg-markdown">${md(s.content)}</div>`; }
-        else if(s.type==='thinking'){ if(!(s.content||'').trim()) continue; h += `<details class="seg-thinking"><summary>Thinking…</summary><pre>${esc(s.content)}</pre></details>`; }
-        else if(s.type==='tool_call'){
-            h += `<details class="seg-tool"><summary>🔧 ${esc(s.name)}</summary>`;
-            if((s.args_summary||'').trim()) h += `<div class="seg-label">Args</div><pre>${esc(s.args_summary)}</pre>`;
-            if((s.result_summary||'').trim()) h += `<div class="seg-label">Result</div><pre>${esc(s.result_summary)}</pre>`;
-            h += `</details>`;
+// Render one collapsed box for a run of consecutive thinking/tool steps.
+function renderWorkGroup(group){
+    let inner='', toolNames=[];
+    for(const s of group){
+        if(s.type==='thinking'){
+            inner += `<div class="work-step"><div class="seg-label">Thinking</div><pre>${esc(s.content)}</pre></div>`;
+        } else { // tool_call
+            toolNames.push(s.name);
+            let d = `<div class="work-step"><div class="work-tool">🔧 ${esc(s.name)}</div>`;
+            if((s.args_summary||'').trim()) d += `<div class="seg-label">Args</div><pre>${esc(s.args_summary)}</pre>`;
+            if((s.result_summary||'').trim()) d += `<div class="seg-label">Result</div><pre>${esc(s.result_summary)}</pre>`;
+            inner += d + `</div>`;
         }
     }
+    const n = group.length;
+    const uniq = [...new Set(toolNames)];
+    const names = uniq.slice(0,3).join(', ') + (uniq.length>3 ? ` +${uniq.length-3}` : '');
+    const label = uniq.length ? `⚙️ ${esc(names)}` : '💭 Thinking';
+    return `<details class="seg-group"><summary>`
+         + `<span class="seg-group-label">${label}</span>`
+         + `<span class="seg-group-count">${n} step${n>1?'s':''}</span></summary>`
+         + `<div class="seg-group-body">${inner}</div></details>`;
+}
+
+// Text renders inline; each run of think/tool steps between texts collapses as one group.
+function renderSegments(segs){
+    let h='', group=[];
+    const flush = () => { if(group.length){ h += renderWorkGroup(group); group=[]; } };
+    for(const s of segs){
+        if(s.type==='text'){
+            if(!(s.content||'').trim()) continue;
+            flush();
+            h += `<div class="msg-markdown">${md(s.content)}</div>`;
+        } else if(s.type==='thinking'){
+            if((s.content||'').trim()) group.push(s);
+        } else if(s.type==='tool_call'){
+            group.push(s);
+        }
+    }
+    flush();
     return h;
 }
 
