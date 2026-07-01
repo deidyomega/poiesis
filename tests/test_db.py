@@ -48,6 +48,11 @@ async def test_memory_and_settings(db):
     assert len(await store.search_memories(db, "general", "dark")) == 1
     assert len(await store.search_memories(db, "pm", "dark")) == 0
 
+    # LIKE metacharacters in the query match literally, not as wildcards
+    await store.add_memory(db, "general", "Discount was 50% off")
+    assert len(await store.search_memories(db, "general", "50%")) == 1  # literal %
+    assert len(await store.search_memories(db, "general", "%")) == 1    # not "everything"
+
     await store.set_setting(db, "last_green_sha", "abc123")
     assert await store.get_setting(db, "last_green_sha") == "abc123"
     assert await store.get_setting(db, "missing") is None

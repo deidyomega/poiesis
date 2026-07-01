@@ -162,9 +162,13 @@ async def list_memories(db: Database, channel_id: str) -> list[dict[str, Any]]:
 
 
 async def search_memories(db: Database, channel_id: str, query: str) -> list[dict[str, Any]]:
+    # Escape LIKE metacharacters so a query containing % or _ matches them literally
+    # instead of wildcarding (a bare "%" would otherwise return every memory).
+    pattern = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     return await db.fetch_all(
-        "SELECT * FROM memories WHERE channel_id = ? AND content LIKE ? ORDER BY updated_at DESC",
-        (channel_id, f"%{query}%"),
+        "SELECT * FROM memories WHERE channel_id = ? AND content LIKE ? ESCAPE '\\' "
+        "ORDER BY updated_at DESC",
+        (channel_id, f"%{pattern}%"),
     )
 
 
