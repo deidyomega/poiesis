@@ -58,6 +58,17 @@
         ::-webkit-scrollbar-track { background: {{ theme.colors.bg }}; }
         ::-webkit-scrollbar-thumb { background: {{ theme.colors.border }}; border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: {{ theme.colors.muted }}; }
+
+        /* Cross-document (MPA) view transitions: a subtle crossfade between full-page
+           navigations instead of a white flash. One rule, no JS; unsupported browsers
+           just navigate normally. */
+        @view-transition { navigation: auto; }
+        ::view-transition-old(root),
+        ::view-transition-new(root) { animation-duration: .16s; }
+        @media (prefers-reduced-motion: reduce) {
+            ::view-transition-old(root),
+            ::view-transition-new(root) { animation: none; }
+        }
     </style>
 
     {% block head %}{% endblock %}
