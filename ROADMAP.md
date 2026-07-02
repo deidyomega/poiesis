@@ -4,68 +4,92 @@ Living handoff doc. [`rebuild.md`](rebuild.md) is the architecture/design spec; 
 "where we are, what's next, how to run it, and the gotchas worth not re-learning." Read this
 first when picking the project back up.
 
-## Where we are (2026-07-01)
+## Where we are (2026-07-02)
 
-Working single-user app, clean v2 base, all on `main`: five channels (general,
-project-management, feature, bug, analytics) in a channel-centric nav; **Atlas** is the PM
-persona; self-mod proven (it added a `/ping` route to itself); durable scheduler + the 10am
-PM nudge; SSE chat with keepalives; Cloudflare-Tunnel deploy artifacts. 15 tests pass.
+Working single-user app, all on `main`, ~29 tests passing. Live on the public internet at
+**`agents.mattharris.tech`** (Cloudflare Tunnel from a separate LAN box → this app box at
+`192.168.1.6:8000`).
 
-Latest cleanup pass: purged the last v1 cruft — the page-discovery/custom-page "generator"
-engine (`web/engine.py`, `pages_custom/`, `templates_custom/`) and ~22 orphan v1 templates;
-routers are now imported explicitly. **#general is locked to chat + read-only code access +
-memory** (no Write/Edit/Bash/request_deploy) so it can't break the live app while self-mod is
-off. `pyproject`/README metadata de-v1'd. (Runtime cruft still on the box: `~/.poiesis/.env`,
-`config.json`, `credentials.json` are all v1 — see below.)
+Five channels in a channel-centric nav:
+- **#general** — the "do whatever" research surface: full Claude Code toolset (web/search/
+  subagents/shell), sandboxed to a scratch workspace (`~/.poiesis/general`), not the repo.
+- **#pm** (Atlas) — task list + the 10am nudge.
+- **#feature / #bug / #analytics** — thinking spaces; real pipelines deferred.
+- **#spice** (Prompta) — an **OpenAI-compatible** channel (not the Claude SDK) for generating
+  adult challenge ideas; runs on OpenRouter (`sao10k/l3.3-euryale-70b`) or a LAN Ollama, with
+  an in-UI model picker.
+
+Big things shipped since the v2 base:
+- **Two engines behind one `run_turn`** — Claude Agent SDK + OpenAI-compatible (Ollama/
+  OpenRouter). Channel `engine` column dispatches; `chat.py`/scheduler untouched.
+- **Generation is decoupled from the browser** (see [detached turns](#detached-turns-how-chat-works-now) below).
+- **Per-channel memory** (was global and leaked across channels).
+- **Model picker** in the #spice header (cross-provider, per-channel).
+- Soul editor in Settings; raw per-turn transcript viewer; grouped think/tool boxes with
+  live tool args/results; durable file logging (`~/.poiesis/poiesis.log`).
 
 ## How we work (for now)
 
-- **Commit directly to `main`, no feature branches, until the app is feature-complete.**
-- **Self-mod is deferred.** Build features the normal way — human + Claude Code editing the
-  repo, commit, restart. Turn self-mod on once the app is worth protecting.
-- **Dev runtime:** `screen` (or tmux) + `poiesis start --app-only` (no supervisor). Edit on
-  the box (or `git pull`), refresh the browser. Templates/souls take effect on refresh;
-  Python needs a restart (until the `--reload` dev runner lands).
-- **Commit before anything self-mod** — a rollback (`git reset --hard last-green`) eats
-  uncommitted changes.
+- **Commit directly to `main`, no feature branches.**
+- **Self-mod is deferred.** Build features the normal way — edit repo, commit, restart.
+- **Dev runtime:** `screen` + `poiesis start --app-only` on the box. Templates/souls take
+  effect on browser refresh; Python needs a restart; migrations run on boot.
+- Machines are FRUs — dev lives on the box, not the laptop.
 
-## Next up (in order)
+## Next up (in order — MOBILE is the current priority)
 
-1. **Soul editor in Settings** — read/write `souls/<path>` from the browser (git-commit the
-   edit so it's rollback-safe). Souls are read each turn → live on save, no restart.
-2. **`--reload` dev runner** — `poiesis start --app-only --reload` so Python edits are also
-   just-refresh.
-3. **Re-enable #general self-mod** once the supervisor's rollback net is on for real — grant
-   back Write/Edit/Bash/request_deploy (see the locked-down seed in `bootstrap.py`).
+1. **Clean mobile UI (Android PWA).** The bar is *Discord-quality mobile UX*, not a shrunk
+   desktop site. Two parts: (a) a genuinely good mobile layout — channel drawer, polished
+   message list, keyboard-aware composer, safe areas, touch feedback; (b) the PWA shell —
+   manifest + service worker + install. Android-only + single-user keeps it tight (no iOS
+   cruft). Detached turns already make backgrounding safe.
+2. **Web Push** — one VAPID keypair, one stored subscription, `pywebpush` in the scheduler,
+   so the 10am nudge reaches a locked phone. (Depends on the PWA shell.)
+3. **CF Access + token SSO** on `agents.mattharris.tech` — trust the `Cf-Access-Jwt-Assertion`
+   header → auto-mint the session → kill the login screen on every device.
 
 ## Later (deliberately deferred)
 
-- **#bug pipeline** (the keystone; "took weeks" in OpenClaw — don't rush): Sentry webhook →
-  staged bots with typed handoffs + git-worktree-per-job → PR + triple-R. Reuses the
-  coding-agent + worktree machinery.
-- **True blue/green + web/engine process split** — needed once long-running jobs exist, so a
-  self-redeploy can't interrupt them.
-- **#feature / #analytics real capabilities** — feature: coding against the work repo (Django
-  monorepo); analytics: MCP connectors (GA, Recurly, Datadog).
-- **Mobile** — Flutter + SSE + local notifications (backend already emits SSE + a
-  `notification` flag; will want token auth instead of the session cookie).
+- **#bug pipeline** (the keystone; greenfield — the OpenClaw version was mediocre, take the
+  *concepts* not the code): Sentry webhook → staged bots with typed handoffs + git-worktree-
+  per-job → PR + triple-R, against the AnnuityOS Django monorepo.
+- **web/engine process split + true blue/green** — the other half of durability: detached
+  turns survive client disconnects but not a server restart; long #bug jobs need to survive
+  self-redeploys. Same fix unlocks both.
+- **#feature / #analytics** real capabilities — feature: coding vs the work repo; analytics:
+  MCP connectors (GA, Recurly, Datadog).
+- **`--reload` dev runner** so Python edits are also just-refresh.
+
+## Detached turns (how chat works now)
+
+Generation is an app-owned task, not the browser's request. `poiesis/web/turns.py::TurnManager`
+runs each turn to completion and persists to SQLite regardless of who's connected; `/chat/stream`
+is a *follower* (attach → `catchup` resync → detach on disconnect → reattach on reload). The DB
+is the source of truth (`messages.status` = generating/done/cancelled/error). Survives every
+*client* disconnect (refresh, laptop-close, flaky net, mobile background); a *server* restart
+mid-turn is marked errored on boot (`reset_generating_messages`) — full cross-restart durability
+is the web/engine split above.
 
 ## Gotchas worth remembering
 
-- **Model auth:** the `claude` CLI provides it — `claude login` (subscription, cheaper) or a
-  raw `ANTHROPIC_API_KEY`. Don't set the key if you want the subscription. Poiesis doesn't
-  manage auth (the old `POIESIS_ANTHROPIC_API_KEY` bridge was removed).
-- **SDK file sandbox:** the Agent SDK's built-in file tools only see *real* mounted dirs (a
-  `/var/folders` temp dir showed up empty as `/home/user`). Self-mod works (real repo). For
-  data the agent must touch reliably, use in-process MCP tools (like `read_tasks`), not the
-  sandboxed file tools. Overriding `HOME` breaks the CLI's auth.
-- **SSE behind Cloudflare:** CF drops idle connections (~100s); the stream sends keepalives
-  every 15s so long turns survive. Keep the `X-Accel-Buffering: no` header on the stream.
-- **Storage split:** tasks = markdown file (`~/.poiesis/pm/task.md`, outside the repo → safe
-  from rollback); memories = SQLite rows; souls = git-tracked files in `souls/`.
-- **Timezone:** set `POIESIS_TZ` (Matt = `America/Phoenix`, MST, no DST) so the agent's clock
-  and the nudge use local time.
+- **SDK tool capability:** set `ClaudeAgentOptions.tools` explicitly — left None, the SDK loads
+  the *entire* Claude Code preset, and `bypassPermissions` means `allowed_tools` doesn't gate
+  it. The `"*"` sentinel in a channel's allowed_tools opts into the full preset (#general).
+- **#spice / OpenAI engine:** config in `~/.poiesis/.env` (`POIESIS_SPICE_*`). OpenRouter niche
+  models are often **single-provider** → they 429 with no fallback; prefer multi-provider (check
+  `/api/v1/models/<id>/endpoints`); `max_retries=4` rides transient throttles. Abliteration
+  removes refusals, not the safe-style prior — **command** the explicit register in the soul.
+- **Model auth (Claude):** the `claude` CLI provides it (`claude login` or `ANTHROPIC_API_KEY`).
+  Overriding `HOME` breaks the CLI's auth.
+- **SSE behind Cloudflare:** CF drops idle connections (~100s); the stream sends keepalives every
+  15s. Keep `Cache-Control: no-cache, no-transform` + `X-Accel-Buffering: no` on the stream.
+- **Test isolation:** bootstrap/config write to the real `~/.poiesis` via `Path.home()`; patch
+  `Path.home` in tests, never `rm -rf ~/.poiesis`.
+- **Storage split:** tasks = markdown (`~/.poiesis/pm/task.md`, outside repo → rollback-safe);
+  memories = SQLite (per-channel); challenges = fetched + cached at boot; souls = git-tracked.
+- **Timezone:** `POIESIS_TZ=America/Phoenix` (MST, no DST).
 
 ## Deploy
 
-Cloudflare Tunnel (not Caddy — ISP blocks port 80). Full runbook: [`deploy/README.md`](deploy/README.md).
+Public at `agents.mattharris.tech` via Cloudflare Tunnel (cloudflared on a separate LAN box →
+`http://192.168.1.6:8000`). App binds `0.0.0.0`. Full runbook: [`deploy/README.md`](deploy/README.md).
