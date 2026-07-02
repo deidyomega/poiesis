@@ -1,9 +1,10 @@
 <!-- Mobile overlay (closes sidebar when tapping outside) -->
 <div id="sidebar-overlay" class="fixed inset-0 bg-black/50 z-30 hidden lg:hidden" onclick="toggleSidebar()"></div>
 
-<aside id="sidebar" class="fixed top-0 left-0 h-screen w-64 bg-poiesis-surface border-r border-poiesis-border flex flex-col z-40 transition-transform duration-200 -translate-x-full lg:translate-x-0">
+<aside id="sidebar" class="fixed top-0 left-0 h-[100dvh] w-64 bg-poiesis-surface border-r border-poiesis-border flex flex-col z-40 transition-transform duration-200 -translate-x-full lg:translate-x-0">
     <!-- Branding -->
-    <div class="p-4 border-b border-poiesis-border flex items-center justify-between">
+    <div class="p-4 border-b border-poiesis-border flex items-center justify-between"
+         style="padding-top:max(1rem,env(safe-area-inset-top))">
         <a href="/" draggable="false" class="flex items-center gap-2 text-lg font-semibold text-poiesis-text hover:text-poiesis-accent transition-colors select-none">
             <span class="text-2xl">{{ theme.app_icon }}</span>
             <span>{{ theme.app_name }}</span>
@@ -34,7 +35,7 @@
     </nav>
 
     <!-- Footer: Settings -->
-    <div class="p-3 border-t border-poiesis-border">
+    <div class="p-3 border-t border-poiesis-border" style="padding-bottom:max(.75rem,env(safe-area-inset-bottom))">
         {% set on_settings = request and request.url.path == '/settings' %}
         <a href="/settings" draggable="false"
            class="flex items-center gap-2 px-2 py-1.5 rounded-poiesis text-sm transition-colors select-none cursor-pointer

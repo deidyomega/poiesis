@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="{{ theme.colors.bg }}">
     <title>{% block title %}{{ theme.app_name }}{% endblock %}</title>
 
     <!-- Tailwind CDN with dynamic poiesis color palette -->
@@ -61,22 +62,26 @@
 
     {% block head %}{% endblock %}
 </head>
-<body class="min-h-screen bg-poiesis-bg text-poiesis-text font-poiesis">
-    <div class="flex min-h-screen">
+<body class="bg-poiesis-bg text-poiesis-text font-poiesis">
+    <!-- h-[100dvh] + overflow-hidden = the app is exactly the viewport, no page scroll;
+         only the message list scrolls. dvh tracks the mobile URL bar correctly. -->
+    <div class="flex h-[100dvh] overflow-hidden">
         <!-- Sidebar -->
         {% include "components/nav.html" %}
 
         <!-- Main Content -->
         <div class="flex-1 flex flex-col lg:ml-64 min-w-0 overflow-hidden">
-            <!-- Mobile Top Bar -->
-            <header class="lg:hidden sticky top-0 z-20 bg-poiesis-surface border-b border-poiesis-border px-4 py-3 flex items-center gap-3">
-                <button onclick="toggleSidebar()" class="p-1 text-poiesis-muted hover:text-poiesis-text">
+            <!-- Mobile Top Bar (single, channel-focused) -->
+            <header class="lg:hidden shrink-0 z-20 bg-poiesis-surface border-b border-poiesis-border flex items-center gap-2 px-3"
+                    style="padding-top:max(.55rem,env(safe-area-inset-top));padding-bottom:.55rem">
+                <button onclick="toggleSidebar()" class="p-1.5 -ml-1 text-poiesis-muted active:text-poiesis-text select-none" aria-label="Channels">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
                 </button>
-                <span class="text-sm font-semibold text-poiesis-text">{{ theme.app_icon }} {{ theme.app_name }}</span>
+                <span class="text-base font-semibold text-poiesis-text truncate">{% block mobile_title %}{{ theme.app_icon }} {{ theme.app_name }}{% endblock %}</span>
+                <div class="ml-auto flex items-center gap-1">{% block mobile_actions %}{% endblock %}</div>
             </header>
 
-            <main class="flex-1 p-4 lg:p-6 overflow-y-auto overflow-x-hidden min-w-0">
+            <main class="flex-1 min-h-0 p-0 lg:p-6 overflow-y-auto overflow-x-hidden min-w-0">
                 {% block content %}{% endblock %}
             </main>
         </div>

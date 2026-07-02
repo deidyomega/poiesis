@@ -46,9 +46,32 @@
 </style>
 {% endblock %}
 
+{% block mobile_title %}{{ (channel.name if channel else "general").replace('-', ' ').title() }}{% endblock %}
+
+{% block mobile_actions %}
+<div class="relative">
+    <button type="button" onclick="toggleMobileMenu(event)" class="p-1.5 text-poiesis-muted active:text-poiesis-text select-none" aria-label="More">
+        <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg>
+    </button>
+    <div id="mobile-menu" class="hidden absolute right-0 mt-1 w-52 bg-poiesis-surface border border-poiesis-border rounded-poiesis shadow-xl py-1 z-40 text-sm">
+        {% if model_options %}
+        <div class="px-3 pt-1.5 pb-1 text-[11px] uppercase tracking-wide text-poiesis-muted">Reply model</div>
+        <select onchange="setModel(this.value)" class="mx-2 mb-1 w-[calc(100%-1rem)] bg-poiesis-bg border border-poiesis-border rounded-poiesis px-2 py-2 text-poiesis-text focus:outline-none">
+            {% for m in model_options %}<option value="{{ m.id }}" {% if m.id==current_model_id %}selected{% endif %}>{{ m.label }}</option>{% endfor %}
+        </select>
+        <div class="border-t border-poiesis-border my-1"></div>
+        {% endif %}
+        <a href="/settings" class="block px-3 py-2.5 text-poiesis-text active:bg-poiesis-border/40">⚙️ Settings</a>
+        <button type="button" onclick="clearChannel()" class="w-full text-left px-3 py-2.5 text-poiesis-error active:bg-poiesis-border/40">Clear channel</button>
+        <form method="post" action="/logout"><button class="w-full text-left px-3 py-2.5 text-poiesis-muted active:bg-poiesis-border/40">Sign out</button></form>
+    </div>
+</div>
+{% endblock %}
+
 {% block content %}
-<div class="flex flex-col h-[calc(100vh-2rem)] lg:h-[calc(100vh-3rem)] min-w-0">
-    <div class="flex items-center gap-2 mb-3 shrink-0">
+<div class="flex flex-col h-full min-w-0">
+    <!-- Desktop header. On mobile the top bar (title + ⋮ menu) does this instead. -->
+    <div class="hidden lg:flex items-center gap-2 mb-3 shrink-0">
         <h1 class="text-lg font-semibold text-poiesis-text">{{ (channel.name if channel else "general").replace('-', ' ').title() }}</h1>
         {% if model_options %}
         <select id="model-select" onchange="setModel(this.value)" title="Model for replies"
@@ -66,9 +89,9 @@
         <form method="post" action="/logout"><button class="px-2 py-1 text-xs rounded-poiesis text-poiesis-muted hover:text-poiesis-text">Sign out</button></form>
     </div>
 
-    <div id="deploys" class="shrink-0"></div>
+    <div id="deploys" class="shrink-0 px-3 lg:px-0"></div>
 
-    <div id="message-list" class="flex-1 overflow-y-auto space-y-3 mb-3 pr-1 min-w-0">
+    <div id="message-list" class="flex-1 min-h-0 overflow-y-auto overscroll-contain space-y-3 px-3 lg:px-0 py-3 lg:pt-0 lg:mb-3 min-w-0">
         {% for m in messages %}
         <div class="flex {% if m.role=='user' %}justify-end{% else %}justify-start{% endif %}" data-msg-id="{{ m.id }}" data-ts="{{ m.created_at }}">
             <div class="max-w-[85%] px-4 py-2.5 rounded-poiesis text-sm leading-relaxed msg-markdown overflow-x-auto
@@ -80,11 +103,12 @@
         {% endfor %}
     </div>
 
-    <form id="chat-form" class="flex gap-2 items-end shrink-0 pb-1">
-        <textarea id="chat-input" rows="1" placeholder="Message {{ (channel.name if channel else 'general').replace('-', ' ').title() }}… (Shift+Enter for newline)"
-                  class="flex-1 bg-poiesis-surface border border-poiesis-border rounded-poiesis px-4 py-2.5 text-sm text-poiesis-text placeholder-poiesis-muted focus:outline-none focus:border-poiesis-accent resize-none"></textarea>
-        <button type="submit" id="send-btn" class="px-5 py-2.5 text-sm rounded-poiesis bg-poiesis-accent text-white hover:opacity-90 shrink-0">Send</button>
-        <button type="button" id="stop-btn" class="hidden px-5 py-2.5 text-sm rounded-poiesis bg-poiesis-error text-white hover:opacity-90 shrink-0">Stop</button>
+    <form id="chat-form" class="flex gap-2 items-end shrink-0 px-3 lg:px-0 pt-2 lg:pt-0 bg-poiesis-bg"
+          style="padding-bottom:max(.5rem,env(safe-area-inset-bottom))">
+        <textarea id="chat-input" rows="1" placeholder="Message {{ (channel.name if channel else 'general').replace('-', ' ').title() }}…"
+                  class="flex-1 bg-poiesis-surface border border-poiesis-border rounded-poiesis px-4 py-2.5 text-base lg:text-sm text-poiesis-text placeholder-poiesis-muted focus:outline-none focus:border-poiesis-accent resize-none"></textarea>
+        <button type="submit" id="send-btn" class="px-5 py-2.5 text-sm rounded-poiesis bg-poiesis-accent text-white active:opacity-80 hover:opacity-90 shrink-0">Send</button>
+        <button type="button" id="stop-btn" class="hidden px-5 py-2.5 text-sm rounded-poiesis bg-poiesis-error text-white active:opacity-80 hover:opacity-90 shrink-0">Stop</button>
     </form>
 </div>
 
@@ -293,7 +317,18 @@ stopBtn.addEventListener('click', () => {
 form.addEventListener('submit', e => { e.preventDefault(); send(); });
 input.addEventListener('keydown', e => { if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); send(); } });
 input.addEventListener('input', () => { input.style.height='auto'; input.style.height=Math.min(input.scrollHeight,160)+'px'; });
+input.addEventListener('focus', () => setTimeout(scroll, 300));   // keep latest msg visible over the keyboard
 if('Notification' in window && Notification.permission==='default') Notification.requestPermission();
+
+// Mobile overflow (⋮) menu
+function toggleMobileMenu(e){ e.stopPropagation(); document.getElementById('mobile-menu')?.classList.toggle('hidden'); }
+document.addEventListener('click', () => document.getElementById('mobile-menu')?.classList.add('hidden'));
+function clearChannel(){
+    if(!confirm('Clear this channel?')) return;
+    const f=document.createElement('form'); f.method='post'; f.action='/chat/clear';
+    const i=document.createElement('input'); i.name='channel_id'; i.value=channelId;
+    f.appendChild(i); document.body.appendChild(f); f.submit();
+}
 
 // ── Live message poller (proactive/scheduled messages appear without refresh) ──
 async function pollMessages(){
