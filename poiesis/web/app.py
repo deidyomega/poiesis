@@ -12,6 +12,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
+from poiesis import store
 from poiesis.config import PoiesisEnv
 from poiesis.db import Database
 from poiesis.migrations.runner import run_migrations
@@ -19,6 +20,7 @@ from poiesis.web import auth
 from poiesis.web.middleware import ThemeMiddleware
 from poiesis.web.pages import chat, settings
 from poiesis.web.theming import PRESET_THEMES
+from poiesis.web.turns import TurnManager
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +45,11 @@ def create_app(db: Database, env: PoiesisEnv) -> FastAPI:
 
         await db.connect()
         await run_migrations(db)
+        # Detached turns don't survive a process restart — mark any left mid-flight as errored.
+        n_reset = await store.reset_generating_messages(db)
+        if n_reset:
+            logging.getLogger("poiesis.web.app").info(
+                "Reset %d interrupted turn(s) from a prior run", n_reset)
         # Pre-load #spice's challenges into a cached markdown blob so its (slow, thinking)
         # model gets them in-context without a runtime tool round-trip. Refreshes each boot.
         from poiesis.agent.spice_tools import refresh_challenges
@@ -92,4 +99,5 @@ def create_app(db: Database, env: PoiesisEnv) -> FastAPI:
     app.state.db = db
     app.state.env = env
     app.state.templates = templates
+    app.state.turns = TurnManager(db, env)  # owns detached, client-independent turns
     return app

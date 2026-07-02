@@ -67,26 +67,26 @@ async def set_channel_model(
 
 # ── Messages ────────────────────────────────────────────────────────────────
 
+def _hydrate_message(r: dict[str, Any]) -> dict[str, Any]:
+    r["segments"] = json.loads(r["segments"]) if r.get("segments") else None
+    r["status"] = r.get("status") or "done"
+    r["cancelled"] = (r["status"] == "cancelled")  # derived from status (single source)
+    r["notification"] = bool(r.get("notification"))
+    return r
+
+
 async def list_messages(db: Database, channel_id: str, limit: int = 200) -> list[dict[str, Any]]:
     rows = await db.fetch_all(
         "SELECT * FROM messages WHERE channel_id = ? ORDER BY created_at DESC LIMIT ?",
         (channel_id, limit),
     )
     rows.reverse()
-    for r in rows:
-        r["segments"] = json.loads(r["segments"]) if r.get("segments") else None
-        r["cancelled"] = bool(r["cancelled"])
-        r["notification"] = bool(r.get("notification"))
-    return rows
+    return [_hydrate_message(r) for r in rows]
 
 
 async def get_message(db: Database, message_id: str) -> dict[str, Any] | None:
     row = await db.fetch_one("SELECT * FROM messages WHERE id = ?", (message_id,))
-    if row:
-        row["segments"] = json.loads(row["segments"]) if row.get("segments") else None
-        row["cancelled"] = bool(row["cancelled"])
-        row["notification"] = bool(row.get("notification"))
-    return row
+    return _hydrate_message(row) if row else None
 
 
 async def add_message(
@@ -97,13 +97,14 @@ async def add_message(
     *,
     segments: list[dict[str, Any]] | None = None,
     notification: bool = False,
+    status: str = "done",
 ) -> str:
     mid = _id("msg")
     await db.execute(
-        "INSERT INTO messages (id, channel_id, role, content, segments, cancelled, notification, created_at) "
-        "VALUES (?, ?, ?, ?, ?, 0, ?, ?)",
+        "INSERT INTO messages (id, channel_id, role, content, segments, cancelled, notification, status, created_at) "
+        "VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)",
         (mid, channel_id, role, content, json.dumps(segments) if segments else None,
-         1 if notification else 0, _now()),
+         1 if notification else 0, status, _now()),
     )
     return mid
 
@@ -114,11 +115,7 @@ async def messages_after(db: Database, channel_id: str, after_iso: str) -> list[
         "SELECT * FROM messages WHERE channel_id = ? AND created_at > ? ORDER BY created_at",
         (channel_id, after_iso),
     )
-    for r in rows:
-        r["segments"] = json.loads(r["segments"]) if r.get("segments") else None
-        r["cancelled"] = bool(r["cancelled"])
-        r["notification"] = bool(r.get("notification"))
-    return rows
+    return [_hydrate_message(r) for r in rows]
 
 
 async def update_message(
@@ -127,8 +124,8 @@ async def update_message(
     *,
     content: str | None = None,
     segments: list[dict[str, Any]] | None = None,
-    cancelled: bool | None = None,
     session_id: str | None = None,
+    status: str | None = None,
 ) -> None:
     sets, params = [], []
     if content is not None:
@@ -137,16 +134,31 @@ async def update_message(
     if segments is not None:
         sets.append("segments = ?")
         params.append(json.dumps(segments))
-    if cancelled is not None:
-        sets.append("cancelled = ?")
-        params.append(1 if cancelled else 0)
     if session_id is not None:
         sets.append("session_id = ?")
         params.append(session_id)
+    if status is not None:
+        sets.append("status = ?")
+        params.append(status)
+        sets.append("cancelled = ?")  # keep the legacy column consistent with status
+        params.append(1 if status == "cancelled" else 0)
     if not sets:
         return
     params.append(message_id)
     await db.execute(f"UPDATE messages SET {', '.join(sets)} WHERE id = ?", tuple(params))
+
+
+async def reset_generating_messages(db: Database) -> int:
+    """On boot, no detached turn survives a process restart — mark any left mid-flight
+    as errored so they don't hang in 'generating' forever. Returns how many."""
+    rows = await db.fetch_all("SELECT id, content FROM messages WHERE status = 'generating'")
+    for r in rows:
+        note = "⚠️ interrupted (server restarted mid-reply)"
+        content = f"{r['content']}\n\n{note}" if (r["content"] or "").strip() else note
+        await db.execute(
+            "UPDATE messages SET status = 'error', content = ? WHERE id = ?", (content, r["id"])
+        )
+    return len(rows)
 
 
 async def clear_channel(db: Database, channel_id: str) -> None:

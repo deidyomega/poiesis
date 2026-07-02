@@ -74,6 +74,7 @@
             <div class="max-w-[85%] px-4 py-2.5 rounded-poiesis text-sm leading-relaxed msg-markdown overflow-x-auto
                         {% if m.role=='user' %}bg-poiesis-accent text-white msg-user{% elif m.role=='system' %}bg-poiesis-warning/20 border border-poiesis-warning/30{% else %}bg-poiesis-surface border border-poiesis-border{% endif %}"
                  data-raw="{{ m.content|e }}" data-role="{{ m.role }}" data-session-id="{{ m.session_id or '' }}"
+                 data-status="{{ m.status }}"
                  {% if m.segments %}data-segments='{{ m.segments|tojson }}'{% endif %}>{{ m.content }}</div>
         </div>
         {% endfor %}
@@ -96,6 +97,7 @@ const form = document.getElementById('chat-form');
 const sendBtn = document.getElementById('send-btn');
 const stopBtn = document.getElementById('stop-btn');
 let es = null;
+let activeAgentId = null;             // the turn we're currently following (for Stop/reconnect)
 let lastSeen = '';                    // max created_at seen (for the poller)
 const localIds = new Set();           // ids created in this tab (avoid poller dupes)
 
@@ -206,6 +208,54 @@ scroll();
 
 function setGenerating(on){ sendBtn.classList.toggle('hidden', on); stopBtn.classList.toggle('hidden', !on); }
 
+// Follow a detached turn's stream into bubble {wrap,b}. Generation runs server-side
+// independently — this only renders it, and can attach/reattach freely (reconnect after
+// reload, or EventSource auto-reconnect after a network drop, resynced by the catchup event).
+function followTurn(agentId, a){
+    activeAgentId = agentId;
+    setGenerating(true);
+    let acc=''; const streamSegs=[];
+    const pushText = d => {
+        const last = streamSegs[streamSegs.length-1];
+        if(last && last.type==='text') last.content += d; else streamSegs.push({type:'text', content:d});
+    };
+    const paintStream = () => {
+        a.b.innerHTML = renderSegments(streamSegs, true)
+            || '<div class="thinking-dots"><span></span><span></span><span></span></div>';
+        scroll();
+    };
+    const fillResult = (ev) => {
+        let seg = ev.id && streamSegs.find(s => s.type==='tool_call' && s.id===ev.id);
+        if(!seg){ for(let i=streamSegs.length-1;i>=0;i--){ const s=streamSegs[i];
+            if(s.type==='tool_call' && s.name===ev.name && !(s.result_summary||'').trim()){ seg=s; break; } } }
+        if(seg) seg.result_summary = ev.result||'';
+    };
+    if(es) es.close();
+    es = new EventSource(`/chat/stream/${agentId}`);
+    es.onmessage = (e) => {
+        const ev = JSON.parse(e.data);
+        if(ev.t==='catchup'){               // (re)sync to server state — "" for a fresh turn
+            acc = ev.content||''; streamSegs.length=0;
+            if(acc) streamSegs.push({type:'text', content:acc});
+            paintStream();
+        }
+        else if(ev.t==='text'){ acc += ev.delta; pushText(ev.delta); paintStream(); }
+        else if(ev.t==='tool'){ streamSegs.push({type:'tool_call', name:ev.name, args_summary:ev.args||'', result_summary:'', id:ev.id}); paintStream(); }
+        else if(ev.t==='tool_result'){ fillResult(ev); paintStream(); }
+        else if(ev.t==='error'){ a.b.innerHTML = `<span class="text-poiesis-error">${esc(ev.message)}</span>`; }
+        else if(ev.t==='done'){
+            if(ev.segments && ev.segments.length) a.b.innerHTML = renderSegments(ev.segments);
+            else a.b.innerHTML = md(ev.content||acc);
+            if(ev.cancelled) a.b.innerHTML += '<div class="text-xs text-poiesis-muted mt-1 italic">Stopped</div>';
+            a.b.innerHTML += transcriptLink(a.wrap.dataset.msgId, ev.session_id);
+            if(es){ es.close(); es=null; } activeAgentId=null; setGenerating(false); scroll(); pollDeploys();
+        }
+    };
+    // On a network drop EventSource auto-reconnects; the turn kept running server-side and
+    // the next catchup resyncs us. Don't tear down the UI here — only 'done' ends it.
+    es.onerror = () => {};
+}
+
 async function send(){
     const text = input.value.trim();
     if(!text) return;
@@ -215,56 +265,31 @@ async function send(){
     a.b.innerHTML = '<div class="thinking-dots"><span></span><span></span><span></span></div>';
     setGenerating(true);
     const fd = new FormData(); fd.append('channel_id', channelId); fd.append('message', text);
-    let agentId;
     try{
         const r = await fetch('/chat/send',{method:'POST',body:fd});
-        const j = await r.json(); agentId = j.agent_id;
+        const j = await r.json();
         u.wrap.dataset.msgId = j.user_id; a.wrap.dataset.msgId = j.agent_id;
         localIds.add(j.user_id); localIds.add(j.agent_id);
-    }catch(e){ a.b.innerHTML='<span class="text-poiesis-error text-sm">Failed to send.</span>'; setGenerating(false); return; }
-
-    // Build the streaming view from ordered segments so tool chips render in place
-    // (arrival order) instead of being pinned below the text and snapping into
-    // position only on `done`. Mirrors renderSegments, so there's no reflow at the end.
-    let acc=''; const streamSegs=[];
-    const pushText = d => {
-        const last = streamSegs[streamSegs.length-1];
-        if(last && last.type==='text') last.content += d; else streamSegs.push({type:'text', content:d});
-    };
-    const paintStream = () => {
-        // Render live groups open, so tool args/results are visible as they arrive;
-        // the final `done` render collapses them into the tidy resting view.
-        a.b.innerHTML = renderSegments(streamSegs, true)
-            || '<div class="thinking-dots"><span></span><span></span><span></span></div>';
-        scroll();
-    };
-    const fillResult = (ev) => {
-        let seg = ev.id && streamSegs.find(s => s.type==='tool_call' && s.id===ev.id);
-        if(!seg){ // fall back to the latest same-named call still awaiting a result
-            for(let i=streamSegs.length-1;i>=0;i--){ const s=streamSegs[i];
-                if(s.type==='tool_call' && s.name===ev.name && !(s.result_summary||'').trim()){ seg=s; break; } }
-        }
-        if(seg) seg.result_summary = ev.result||'';
-    };
-    es = new EventSource(`/chat/stream/${agentId}`);
-    es.onmessage = (e) => {
-        const ev = JSON.parse(e.data);
-        if(ev.t==='text'){ acc += ev.delta; pushText(ev.delta); paintStream(); }
-        else if(ev.t==='tool'){ streamSegs.push({type:'tool_call', name:ev.name, args_summary:ev.args||'', result_summary:'', id:ev.id}); paintStream(); }
-        else if(ev.t==='tool_result'){ fillResult(ev); paintStream(); }
-        else if(ev.t==='error'){ a.b.innerHTML = `<span class="text-poiesis-error">${esc(ev.message)}</span>`; }
-        else if(ev.t==='done'){
-            if(ev.segments && ev.segments.length) a.b.innerHTML = renderSegments(ev.segments);
-            else a.b.innerHTML = md(ev.content||acc);
-            if(ev.cancelled) a.b.innerHTML += '<div class="text-xs text-poiesis-muted mt-1 italic">Stopped</div>';
-            a.b.innerHTML += transcriptLink(a.wrap.dataset.msgId, ev.session_id);
-            es.close(); es=null; setGenerating(false); scroll(); pollDeploys();
-        }
-    };
-    es.onerror = () => { if(es){ es.close(); es=null; } setGenerating(false); };
+        followTurn(j.agent_id, a);
+    }catch(e){ a.b.innerHTML='<span class="text-poiesis-error text-sm">Failed to send.</span>'; setGenerating(false); }
 }
 
-stopBtn.addEventListener('click', () => { if(es){ es.close(); es=null; } setGenerating(false); });
+// Stop = cancel the turn server-side (closing the stream no longer stops it). The server
+// then emits a done(cancelled) event which cleans up the UI.
+stopBtn.addEventListener('click', () => {
+    if(activeAgentId) fetch(`/chat/${activeAgentId}/cancel`,{method:'POST'}).catch(()=>{});
+});
+
+// Reopened the page mid-reply? Reattach to the still-running turn and watch it finish.
+(function reconnectInProgress(){
+    const bubbles = document.querySelectorAll('#message-list [data-msg-id]');
+    const last = bubbles[bubbles.length-1];
+    if(!last) return;
+    const el = last.querySelector('[data-raw]');
+    if(el && el.dataset.role==='agent' && el.dataset.status==='generating'){
+        followTurn(last.dataset.msgId, {wrap: last, b: el});
+    }
+})();
 form.addEventListener('submit', e => { e.preventDefault(); send(); });
 input.addEventListener('keydown', e => { if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); send(); } });
 input.addEventListener('input', () => { input.style.height='auto'; input.style.height=Math.min(input.scrollHeight,160)+'px'; });

@@ -3,22 +3,17 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
-import logging
 import re
-import time
-from contextlib import aclosing
 from pathlib import Path
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 
 from poiesis import store
-from poiesis.agent import models, run_turn
+from poiesis.agent import models
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
 
 DEFAULT_CHANNEL = "general"
 
@@ -114,6 +109,9 @@ async def channel_view(request: Request, channel_id: str) -> HTMLResponse:
     return await _render(request, channel_id)
 
 
+_SSE_HEADERS = {"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"}
+
+
 @router.post("/chat/send")
 async def send(request: Request, channel_id: str = Form(...), message: str = Form(...)):
     db = request.app.state.db
@@ -121,132 +119,69 @@ async def send(request: Request, channel_id: str = Form(...), message: str = For
     if not message:
         return JSONResponse({"error": "empty"}, status_code=400)
     user_id = await store.add_message(db, channel_id, "user", message)
-    agent_id = await store.add_message(db, channel_id, "agent", "")
+    agent_id = await store.add_message(db, channel_id, "agent", "", status="generating")
+    # Start the turn as a detached, client-independent task: it runs to completion and
+    # persists to the DB no matter who's connected. The stream endpoint only *follows* it.
+    request.app.state.turns.start(agent_id)
     return JSONResponse({"user_id": user_id, "agent_id": agent_id})
+
+
+@router.post("/chat/{agent_msg_id}/cancel")
+async def cancel(request: Request, agent_msg_id: str) -> JSONResponse:
+    """Explicit Stop — cancels the detached turn (closing the stream no longer stops it)."""
+    stopped = await request.app.state.turns.cancel(agent_msg_id)
+    return JSONResponse({"cancelled": stopped})
 
 
 @router.get("/chat/stream/{agent_msg_id}")
 async def stream(request: Request, agent_msg_id: str):
+    """Follow a detached turn: attach, stream live tokens, detach on disconnect (the turn
+    keeps running server-side). If the turn already finished, replay its final DB state."""
     db = request.app.state.db
-    env = request.app.state.env
+    turn = request.app.state.turns.get(agent_msg_id)
 
-    agent_msg = await store.get_message(db, agent_msg_id)
-    if agent_msg is None:
-        return JSONResponse({"error": "unknown message"}, status_code=404)
-    channel_id = agent_msg["channel_id"]
-    channel = await store.get_channel(db, channel_id)
+    if turn is None:
+        # Not active in this process — done, or reconnecting after it finished. Serve the
+        # final state from the DB as a one-shot so a reload still renders the full reply.
+        m = await store.get_message(db, agent_msg_id)
+        if m is None:
+            return JSONResponse({"error": "unknown message"}, status_code=404)
 
-    msgs = await store.list_messages(db, channel_id)
-    prior = [m for m in msgs if m["id"] != agent_msg_id]
-    user_idx = next((i for i in range(len(prior) - 1, -1, -1) if prior[i]["role"] == "user"), None)
-    user_message = prior[user_idx]["content"] if user_idx is not None else ""
-    history = (
-        [{"role": m["role"], "content": m["content"]} for m in prior[:user_idx]]
-        if user_idx is not None
-        else []
-    )
+        async def once():
+            yield _sse({"t": "done", "content": m["content"], "segments": m["segments"],
+                        "cancelled": m["status"] == "cancelled", "session_id": m.get("session_id")})
+
+        return StreamingResponse(once(), media_type="text/event-stream", headers=_SSE_HEADERS)
+
+    # Active: subscribe + snapshot atomically (no await between → no lost/duplicated tokens),
+    # then catch the follower up and stream live.
+    q: asyncio.Queue = asyncio.Queue()
+    snapshot = turn.accumulated
+    already_done = turn.done
+    turn.subscribers.add(q)
 
     async def gen():
-        accumulated = ""
-        segments = None
-        cancelled = False
-        session_id = None
-        error_msg = None
-        last_persist = 0.0
-
-        # Run the turn in a producer task feeding a queue, so the SSE loop can emit
-        # keepalive comments during long gaps (a tool running for minutes). Without
-        # this, Cloudflare/proxies drop the idle connection (~100s) mid-turn.
-        queue: asyncio.Queue = asyncio.Queue()
-
-        async def produce():
-            try:
-                async with aclosing(
-                    run_turn(
-                        db=db, channel=channel, history=history, user_message=user_message,
-                        message_id=agent_msg_id, repo_root=str(env.repo_root), tz=env.tz,
-                    )
-                ) as turn:
-                    async for ev in turn:
-                        await queue.put(ev)
-            except Exception as e:  # noqa: BLE001 — surface to the stream
-                # run_turn logs a traceback for failures inside its own query loop, but a
-                # raise *before* that loop (soul/memory/mcp setup) escapes here with no
-                # server-side stack. Log it so a blank/errored turn is always debuggable.
-                logger.exception("agent turn setup failed for message %s", agent_msg_id)
-                await queue.put({"type": "error", "message": f"{type(e).__name__}: {e}"})
-            finally:
-                await queue.put({"type": "__end__"})
-
-        producer = asyncio.create_task(produce())
         try:
+            yield _sse({"t": "catchup", "content": snapshot})  # reconnect sync; "" for fresh turns
+            if already_done:
+                yield _sse({"t": "done", "content": turn.accumulated, "segments": turn.segments,
+                            "cancelled": False, "session_id": turn.session_id})
+                return
             while True:
                 try:
-                    ev = await asyncio.wait_for(queue.get(), timeout=15.0)
+                    ev = await asyncio.wait_for(q.get(), timeout=15.0)
                 except asyncio.TimeoutError:
                     if await request.is_disconnected():
-                        cancelled = True
-                        break
+                        break  # detach only — the turn keeps running
                     yield ": keepalive\n\n"  # SSE comment; ignored by EventSource
                     continue
-                if ev.get("type") == "__end__":
+                if ev.get("t") == "__end__":
                     break
-                if await request.is_disconnected():
-                    cancelled = True
-                    break
-                t = ev["type"]
-                if t == "text":
-                    accumulated += ev["delta"]
-                    yield _sse({"t": "text", "delta": ev["delta"]})
-                elif t == "tool_call":
-                    yield _sse({"t": "tool", "name": ev["name"],
-                                "args": ev.get("args", ""), "id": ev.get("id")})
-                elif t == "tool_result":
-                    yield _sse({"t": "tool_result", "name": ev["name"],
-                                "result": ev.get("result", ""), "id": ev.get("id")})
-                elif t == "error":
-                    error_msg = ev["message"]
-                    session_id = ev.get("session_id") or session_id
-                    yield _sse({"t": "error", "message": error_msg})
-                elif t == "done":
-                    accumulated = ev["content"] or accumulated
-                    segments = ev["segments"]
-                    cancelled = ev["cancelled"]
-                    session_id = ev.get("session_id") or session_id
-                now = time.time()
-                if now - last_persist > 0.6:
-                    await store.update_message(db, agent_msg_id, content=accumulated)
-                    last_persist = now
+                yield _sse(ev)
         finally:
-            producer.cancel()
-            with contextlib.suppress(asyncio.CancelledError, Exception):
-                await producer
-            # If the turn errored with nothing usable captured, save the error text so the
-            # bubble shows what went wrong instead of a silent blank (the old failure mode).
-            if error_msg and not (accumulated or "").strip():
-                accumulated = f"⚠️ Turn failed: {error_msg}"
-            elif not (accumulated or "").strip() and not cancelled:
-                # Turn succeeded but produced no text (tools/thinking only, empty, or
-                # filtered). Bubble looks blank; leave a breadcrumb pointing at the
-                # transcript so it's greppable in journald.
-                logger.warning(
-                    "agent turn %s produced empty content (session=%s)", agent_msg_id, session_id
-                )
-            await store.update_message(
-                db, agent_msg_id, content=accumulated, segments=segments,
-                cancelled=cancelled, session_id=session_id,
-            )
-        yield _sse({"t": "done", "content": accumulated, "segments": segments,
-                    "cancelled": cancelled, "session_id": session_id})
+            turn.subscribers.discard(q)
 
-    return StreamingResponse(
-        gen(),
-        media_type="text/event-stream",
-        # no-transform stops the Cloudflare Tunnel edge from gzipping the stream
-        # (which would buffer it for the browser and break per-chunk rendering);
-        # X-Accel-Buffering disables nginx/proxy buffering.
-        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
-    )
+    return StreamingResponse(gen(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
 
 @router.get("/chat/{channel_id}/deploys")
