@@ -16,7 +16,7 @@ from poiesis import store
 from poiesis.config import PoiesisEnv
 from poiesis.db import Database
 from poiesis.migrations.runner import run_migrations
-from poiesis.web import auth
+from poiesis.web import auth, pwa
 from poiesis.web.middleware import ThemeMiddleware
 from poiesis.web.pages import chat, settings
 from poiesis.web.theming import PRESET_THEMES
@@ -74,6 +74,7 @@ def create_app(db: Database, env: PoiesisEnv) -> FastAPI:
     templates.env.globals["theme"] = PRESET_THEMES["default"]
 
     app.include_router(auth.router)
+    app.include_router(pwa.router)
     for page_router in PAGE_ROUTERS:
         app.include_router(page_router)
 

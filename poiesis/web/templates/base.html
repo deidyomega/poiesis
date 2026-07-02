@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="theme-color" content="{{ theme.colors.bg }}">
+    <meta name="mobile-web-app-capable" content="yes">
+    <link rel="manifest" href="/manifest.webmanifest">
     <title>{% block title %}{{ theme.app_name }}{% endblock %}</title>
 
     <!-- Tailwind CDN with dynamic poiesis color palette -->
@@ -113,6 +115,11 @@
         document.body.addEventListener('hideModal', function(evt) {
             document.getElementById('modal-container').classList.add('hidden');
         });
+        // Register the service worker → installable, standalone PWA.
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () =>
+                navigator.serviceWorker.register('/sw.js').catch(() => {}));
+        }
     </script>
 
     {% block scripts %}{% endblock %}

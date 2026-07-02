@@ -14,8 +14,9 @@ from poiesis.config import PoiesisEnv
 
 logger = logging.getLogger(__name__)
 
-# Paths reachable without a session.
-PUBLIC_PREFIXES = ("/login", "/logout", "/healthz", "/static", "/favicon")
+# Paths reachable without a session (incl. PWA shell assets the OS/browser may fetch).
+PUBLIC_PREFIXES = ("/login", "/logout", "/healthz", "/static", "/favicon",
+                   "/manifest.webmanifest", "/sw.js", "/icon-")
 
 router = APIRouter()
 
